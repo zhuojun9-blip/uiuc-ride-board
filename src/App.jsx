@@ -325,6 +325,8 @@ function App() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [messageTab, setMessageTab] = useState('inbox')
   const [isMarkingReadId, setIsMarkingReadId] = useState(null)
+  const [replyDrafts, setReplyDrafts] = useState({})
+  const [isSendingReplyId, setIsSendingReplyId] = useState(null)
   const { addNotification } = useNotification()
 
   const routes = [
@@ -1060,6 +1062,47 @@ function App() {
     }
   }
 
+  const handleReplyChange = (messageId, value) => {
+    setReplyDrafts((prev) => ({ ...prev, [messageId]: value }))
+  }
+
+  const handleSendReply = async (message) => {
+    const replyBody = (replyDrafts[message.id] || '').trim()
+    if (!replyBody) {
+      addNotification({
+        type: 'warning',
+        title: 'Reply is empty',
+        message: 'Write a message before sending.',
+      })
+      return
+    }
+
+    try {
+      setIsSendingReplyId(message.id)
+      const replySubject = message.subject.startsWith('Re: ')
+        ? message.subject
+        : `Re: ${message.subject}`
+
+      await messageAPI.sendMessage(message.sender_id, replySubject, replyBody)
+
+      setReplyDrafts((prev) => ({ ...prev, [message.id]: '' }))
+      addNotification({
+        type: 'success',
+        title: 'Reply sent',
+        message: `Your reply was sent to ${message.sender_name || `User #${message.sender_id}`}.`,
+      })
+      loadMessages()
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not send reply',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsSendingReplyId(null)
+    }
+  }
+
   return (
     <main className="min-h-screen">
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white shadow-sm">
@@ -1737,6 +1780,7 @@ function App() {
 
               {(messageTab === 'inbox' ? inboxMessages : sentMessages).map((message) => {
                 const isInboxView = messageTab === 'inbox'
+                const replyDraft = replyDrafts[message.id] || ''
 
                 return (
                   <article
@@ -1774,6 +1818,27 @@ function App() {
                       ) : null}
                     </div>
                     <p className="mt-3 text-sm leading-6 text-slate-700">{message.body}</p>
+
+                    {isInboxView ? (
+                      <div className="mt-3 space-y-2">
+                        <textarea
+                          rows="2"
+                          value={replyDraft}
+                          onChange={(event) => handleReplyChange(message.id, event.target.value)}
+                          placeholder="Write a quick reply..."
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                        />
+                        <div>
+                          <button
+                            onClick={() => handleSendReply(message)}
+                            disabled={isSendingReplyId === message.id}
+                            className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+                          >
+                            {isSendingReplyId === message.id ? 'Sending...' : 'Send Reply'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </article>
                 )
               })}
