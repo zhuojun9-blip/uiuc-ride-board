@@ -14,7 +14,7 @@ import {
   User,
 } from 'lucide-react'
 
-function LoginPage({ onLogin }) {
+function LoginModal({ isOpen, onClose, onLogin }) {
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -49,24 +49,32 @@ function LoginPage({ onLogin }) {
 
     // Call parent onLogin with user data
     onLogin({ email, name: email.split('@')[0] })
+    setEmail('')
+    setPassword('')
+    setConfirmPassword('')
   }
 
+  if (!isOpen) return null
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 px-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
       <motion.div
         className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl sm:p-8"
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.3 }}
       >
-        <div className="mb-6 flex items-center justify-center gap-2">
-          <Bus size={28} className="text-blue-900" />
-          <h1 className="text-2xl font-semibold text-slate-900">UIUC Ride Board</h1>
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-800">
+            {isSignUp ? 'Create Account' : 'Sign In'}
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-slate-500 transition hover:text-slate-700"
+          >
+            ✕
+          </button>
         </div>
-
-        <h2 className="mb-6 text-center text-lg font-semibold text-slate-800">
-          {isSignUp ? 'Create Account' : 'Welcome Back'}
-        </h2>
 
         {error && (
           <motion.div
@@ -122,12 +130,6 @@ function LoginPage({ onLogin }) {
           </button>
         </form>
 
-        <div className="mt-6 flex items-center gap-2">
-          <div className="h-px flex-1 bg-slate-300" />
-          <span className="text-xs text-slate-500">or</span>
-          <div className="h-px flex-1 bg-slate-300" />
-        </div>
-
         <button
           type="button"
           onClick={() => {
@@ -137,13 +139,13 @@ function LoginPage({ onLogin }) {
             setPassword('')
             setConfirmPassword('')
           }}
-          className="mt-6 w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+          className="mt-4 w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
         >
           {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Create one"}
         </button>
 
-        <p className="mt-6 text-center text-xs text-slate-600">
-          This is a demo. Use any email and password (6+ chars). Forms connect to your backend.
+        <p className="mt-4 text-center text-xs text-slate-500">
+          This is a demo. Use any email and password (6+ chars).
         </p>
       </motion.div>
     </div>
@@ -152,6 +154,7 @@ function LoginPage({ onLogin }) {
 
 function App() {
   const [user, setUser] = useState(null)
+  const [showLoginModal, setShowLoginModal] = useState(false)
   const routes = [
     'All routes',
     'UIUC → ORD',
@@ -178,6 +181,7 @@ function App() {
   const handleLogin = (userData) => {
     setUser(userData)
     localStorage.setItem('rideboard_user', JSON.stringify(userData))
+    setShowLoginModal(false)
   }
 
   const handleLogout = () => {
@@ -185,9 +189,14 @@ function App() {
     localStorage.removeItem('rideboard_user')
   }
 
-  // Show login page if not authenticated
-  if (!user) {
-    return <LoginPage onLogin={handleLogin} />
+  const handleBookingClick = (e) => {
+    e.preventDefault()
+    if (!user) {
+      setShowLoginModal(true)
+    } else {
+      // User is logged in, proceed with booking action
+      alert('Booking action - connect to your backend here!')
+    }
   }
 
   const driverListings = [
@@ -290,17 +299,28 @@ function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-sm text-slate-700">
-              <User size={16} />
-              <span className="hidden sm:inline font-medium">{user.name}</span>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
-            >
-              <LogOut size={16} />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
+            {user ? (
+              <>
+                <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <User size={16} />
+                  <span className="hidden sm:inline font-medium">{user.name}</span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
+                >
+                  <LogOut size={16} />
+                  <span className="hidden sm:inline">Logout</span>
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+              >
+                Sign in
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -420,7 +440,10 @@ function App() {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <button className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800">
+                <button
+                  onClick={handleBookingClick}
+                  className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                >
                   Contact
                 </button>
                 <button className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100">
@@ -453,7 +476,10 @@ function App() {
               <h3 className="mt-2 text-lg font-semibold text-slate-900">{request.rider}</h3>
               <p className="mt-1 text-sm text-slate-600">{request.timing}</p>
               <p className="mt-3 text-sm text-slate-700">{request.details}</p>
-              <button className="mt-4 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500">
+              <button
+                onClick={handleBookingClick}
+                className="mt-4 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500"
+              >
                 Offer Ride
               </button>
             </motion.article>
@@ -516,7 +542,8 @@ function App() {
             </label>
             <div className="md:col-span-2">
               <button
-                type="submit"
+                onClick={handleBookingClick}
+                type="button"
                 className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
               >
                 Submit Application
@@ -588,6 +615,8 @@ function App() {
           </form>
         </motion.article>
       </section>
+
+      <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLogin={handleLogin} />
     </main>
   )
 }
