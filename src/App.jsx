@@ -415,7 +415,7 @@ function App() {
         const mappedDrivers = drivers.map((driver) => ({
           id: driver.id,
           userId: driver.user_id,
-          name: `Driver #${driver.id}`,
+          name: driver.user_name || `Driver #${driver.id}`,
           route: driver.route,
           seats: driver.available_seats,
           departure: driver.departure_time,
@@ -429,7 +429,7 @@ function App() {
           id: request.id,
           userId: request.user_id,
           route: request.route,
-          rider: `Rider #${request.id}`,
+          rider: request.user_name || `Rider #${request.id}`,
           timing: request.departure_time,
           passengers: request.passengers,
           details: request.details || `${request.passengers} passenger(s)`,
@@ -685,7 +685,7 @@ function App() {
       const mappedDriver = {
         id: created.id,
         userId: created.user_id,
-        name: user?.name || `Driver #${created.id}`,
+        name: created.user_name || user?.name || `Driver #${created.id}`,
         route: created.route,
         seats: created.available_seats,
         departure: created.departure_time,
@@ -755,7 +755,7 @@ function App() {
         id: created.id,
         userId: created.user_id,
         route: created.route,
-        rider: user?.name || `Rider #${created.id}`,
+        rider: created.user_name || user?.name || `Rider #${created.id}`,
         timing: created.departure_time,
         passengers: created.passengers,
         details: created.details || `${created.passengers} passenger(s)`,
@@ -1759,8 +1759,8 @@ function App() {
                         </div>
                         <p className="mt-1 text-xs text-slate-500">
                           {isInboxView
-                            ? `From user #${message.sender_id}`
-                            : `To user #${message.recipient_id}`} • {formatMessageTime(message.created_at)}
+                            ? `From ${message.sender_name || `User #${message.sender_id}`}`
+                            : `To ${message.recipient_name || `User #${message.recipient_id}`}`} • ${formatMessageTime(message.created_at)}
                         </p>
                       </div>
                       {isInboxView && !message.is_read ? (

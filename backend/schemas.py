@@ -46,6 +46,7 @@ class DriverUpdate(BaseModel):
 class DriverResponse(DriverBase):
     id: int
     user_id: int
+    user_name: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -72,6 +73,7 @@ class RiderRequestUpdate(BaseModel):
 class RiderRequestResponse(RiderRequestBase):
     id: int
     user_id: int
+    user_name: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -108,7 +110,9 @@ class MessageCreate(BaseModel):
 class MessageResponse(BaseModel):
     id: int
     sender_id: int
+    sender_name: Optional[str] = None
     recipient_id: int
+    recipient_name: Optional[str] = None
     subject: str
     body: str
     is_read: bool

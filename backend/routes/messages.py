@@ -8,6 +8,22 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
+
+def serialize_message(message: Message, db: Session):
+    sender = db.query(User).filter(User.id == message.sender_id).first()
+    recipient = db.query(User).filter(User.id == message.recipient_id).first()
+    return schemas.MessageResponse(
+        id=message.id,
+        sender_id=message.sender_id,
+        sender_name=sender.name if sender else None,
+        recipient_id=message.recipient_id,
+        recipient_name=recipient.name if recipient else None,
+        subject=message.subject,
+        body=message.body,
+        is_read=message.is_read,
+        created_at=message.created_at,
+    )
+
 @router.post("/", response_model=schemas.MessageResponse)
 async def send_message(
     message_data: schemas.MessageCreate,
@@ -26,25 +42,27 @@ async def send_message(
     db.add(db_message)
     db.commit()
     db.refresh(db_message)
-    return db_message
+    return serialize_message(db_message, db)
 
 @router.get("/inbox", response_model=List[schemas.MessageResponse])
 async def get_inbox(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return db.query(Message).filter(
+    messages = db.query(Message).filter(
         Message.recipient_id == current_user.id
     ).order_by(Message.created_at.desc()).all()
+    return [serialize_message(message, db) for message in messages]
 
 @router.get("/sent", response_model=List[schemas.MessageResponse])
 async def get_sent(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return db.query(Message).filter(
+    messages = db.query(Message).filter(
         Message.sender_id == current_user.id
     ).order_by(Message.created_at.desc()).all()
+    return [serialize_message(message, db) for message in messages]
 
 @router.put("/{message_id}/read", response_model=schemas.MessageResponse)
 async def mark_message_read(
@@ -62,4 +80,4 @@ async def mark_message_read(
     message.is_read = True
     db.commit()
     db.refresh(message)
-    return message
+    return serialize_message(message, db)

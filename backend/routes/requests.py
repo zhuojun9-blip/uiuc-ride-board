@@ -8,6 +8,22 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/requests", tags=["requests"])
 
+
+def serialize_request(request: RiderRequest, db: Session):
+    request_owner = db.query(User).filter(User.id == request.user_id).first()
+    return schemas.RiderRequestResponse(
+        id=request.id,
+        user_id=request.user_id,
+        user_name=request_owner.name if request_owner else None,
+        route=request.route,
+        departure_time=request.departure_time,
+        passengers=request.passengers,
+        details=request.details,
+        is_active=request.is_active,
+        created_at=request.created_at,
+        updated_at=request.updated_at,
+    )
+
 @router.post("/", response_model=schemas.RiderRequestResponse)
 async def create_request(
     request_data: schemas.RiderRequestCreate,
@@ -21,7 +37,7 @@ async def create_request(
     db.add(db_request)
     db.commit()
     db.refresh(db_request)
-    return db_request
+    return serialize_request(db_request, db)
 
 @router.get("/", response_model=List[schemas.RiderRequestResponse])
 async def list_requests(
@@ -33,14 +49,14 @@ async def list_requests(
     if route:
         query = query.filter(RiderRequest.route == route)
     
-    return query.all()
+    return [serialize_request(request, db) for request in query.all()]
 
 @router.get("/{request_id}", response_model=schemas.RiderRequestResponse)
 async def get_request(request_id: int, db: Session = Depends(get_db)):
     request = db.query(RiderRequest).filter(RiderRequest.id == request_id).first()
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
-    return request
+    return serialize_request(request, db)
 
 @router.put("/{request_id}", response_model=schemas.RiderRequestResponse)
 async def update_request(
@@ -61,7 +77,7 @@ async def update_request(
     
     db.commit()
     db.refresh(request)
-    return request
+    return serialize_request(request, db)
 
 @router.delete("/{request_id}", status_code=204)
 async def delete_request(
