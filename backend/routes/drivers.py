@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from database import get_db
-from models import Driver, RideReview, User
+from models import Driver, DriverApplication, RideReview, User
 import schemas
 from auth import get_current_user
 
@@ -88,6 +88,18 @@ async def create_driver(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    if not current_user.is_admin:
+        approved_application = db.query(DriverApplication).filter(
+            DriverApplication.user_id == current_user.id,
+            DriverApplication.status == "approved"
+        ).first()
+
+        if not approved_application:
+            raise HTTPException(
+                status_code=403,
+                detail="Your driver application must be approved by an admin before posting listings"
+            )
+
     db_driver = Driver(
         user_id=current_user.id,
         **driver_data.dict()

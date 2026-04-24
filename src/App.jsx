@@ -1457,6 +1457,28 @@ function App() {
     return filteredAdminDriverOverview.slice(0, 5)
   }, [filteredAdminDriverOverview, showAllAdminDriverHistory])
 
+  const canPostDriverListing = useMemo(() => {
+    if (!user) return false
+    if (user.is_admin) return true
+    return myApplications.some((application) => application.status === 'approved')
+  }, [myApplications, user])
+
+  const approvedDriverDirectory = useMemo(() => {
+    const approved = adminApplications.filter((application) => application.status === 'approved')
+    const latestByUser = new Map()
+
+    for (const application of approved) {
+      const existing = latestByUser.get(application.user_id)
+      if (!existing || new Date(application.created_at) > new Date(existing.created_at)) {
+        latestByUser.set(application.user_id, application)
+      }
+    }
+
+    return Array.from(latestByUser.values()).sort((left, right) =>
+      left.full_name.localeCompare(right.full_name)
+    )
+  }, [adminApplications])
+
   const cardMotion = {
     initial: { opacity: 0, y: 12 },
     whileInView: { opacity: 1, y: 0 },
@@ -1553,11 +1575,60 @@ function App() {
     <main className="min-h-screen">
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2">
-            <Bus size={24} className="text-blue-600" />
-            <span className="hidden text-lg font-semibold text-slate-900 sm:inline">
-              UIUC Ride Board
-            </span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Bus size={24} className="text-blue-600" />
+              <span className="hidden text-lg font-semibold text-slate-900 sm:inline">
+                UIUC Ride Board
+              </span>
+            </div>
+
+            <div className="hidden md:flex items-center gap-2">
+              <button
+                title="Message Box"
+                aria-label="Message Box"
+                onClick={() =>
+                  setActiveUtilityPanel((prev) => (prev === 'messages' ? null : 'messages'))
+                }
+                className={`inline-flex items-center justify-center rounded-lg border p-2 transition ${
+                  activeUtilityPanel === 'messages'
+                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                    : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <MessageSquare size={16} />
+              </button>
+
+              <button
+                title="Driver Application"
+                aria-label="Driver Application"
+                onClick={() =>
+                  setActiveUtilityPanel((prev) => (prev === 'application' ? null : 'application'))
+                }
+                className={`inline-flex items-center justify-center rounded-lg border p-2 transition ${
+                  activeUtilityPanel === 'application'
+                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                    : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <User size={16} />
+              </button>
+
+              <button
+                title="Post a Driver Listing"
+                aria-label="Post a Driver Listing"
+                onClick={() =>
+                  setActiveUtilityPanel((prev) => (prev === 'listing' ? null : 'listing'))
+                }
+                className={`inline-flex items-center justify-center rounded-lg border p-2 transition ${
+                  activeUtilityPanel === 'listing'
+                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                    : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Car size={16} />
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-4">
@@ -1620,7 +1691,7 @@ function App() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45 }}
         >
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs">
             <Bus size={16} />
             UIUC Intercity Ride Board
           </div>
@@ -1691,56 +1762,6 @@ function App() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
-        <motion.div
-          className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-          {...cardMotion}
-        >
-          <h3 className="text-sm font-semibold text-slate-900">Quick Access</h3>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <button
-              onClick={() =>
-                setActiveUtilityPanel((prev) => (prev === 'messages' ? null : 'messages'))
-              }
-              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition ${
-                activeUtilityPanel === 'messages'
-                  ? 'border-blue-300 bg-blue-50 text-blue-700'
-                  : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              <MessageSquare size={16} />
-              Message Box
-            </button>
-
-            <button
-              onClick={() =>
-                setActiveUtilityPanel((prev) => (prev === 'application' ? null : 'application'))
-              }
-              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition ${
-                activeUtilityPanel === 'application'
-                  ? 'border-blue-300 bg-blue-50 text-blue-700'
-                  : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              <User size={16} />
-              Driver Application
-            </button>
-
-            <button
-              onClick={() =>
-                setActiveUtilityPanel((prev) => (prev === 'listing' ? null : 'listing'))
-              }
-              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition ${
-                activeUtilityPanel === 'listing'
-                  ? 'border-blue-300 bg-blue-50 text-blue-700'
-                  : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              <Car size={16} />
-              Post a Driver Listing
-            </button>
-          </div>
-        </motion.div>
-
         <div className="mb-6">
           {activeUtilityPanel === 'listing' ? (
             <motion.div
@@ -1748,6 +1769,11 @@ function App() {
             {...cardMotion}
           >
           <h3 className="mb-3 text-lg font-semibold text-slate-900">Post a Driver Listing</h3>
+          {!canPostDriverListing ? (
+            <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+              Your driver application must be approved by an admin before you can post listings.
+            </div>
+          ) : null}
           <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreateDriverListing}>
             <label>
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Route</span>
@@ -1867,10 +1893,10 @@ function App() {
             <div className="md:col-span-2">
               <button
                 type="submit"
-                disabled={isSubmittingDriver}
+                disabled={isSubmittingDriver || !canPostDriverListing}
                 className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
               >
-                {isSubmittingDriver ? 'Posting...' : 'Post Listing'}
+                {!canPostDriverListing ? 'Approval required' : isSubmittingDriver ? 'Posting...' : 'Post Listing'}
               </button>
             </div>
           </form>
@@ -2494,6 +2520,38 @@ function App() {
                   placeholder="Search driver history by name or email"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
                 />
+              </div>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs text-slate-600">Approved drivers</p>
+                  <p className="text-lg font-semibold text-slate-900">{approvedDriverDirectory.length}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs text-slate-600">Drivers with listings</p>
+                  <p className="text-lg font-semibold text-slate-900">{adminDriverOverview.length}</p>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+                <h4 className="text-sm font-semibold text-slate-900">Approved Driver Information</h4>
+                <div className="mt-2 space-y-2">
+                  {approvedDriverDirectory.map((driver) => (
+                    <div key={driver.id} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
+                      <p className="font-medium text-slate-900">{driver.full_name}</p>
+                      <p className="mt-1 text-xs text-slate-600">{driver.email}</p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Route: {driver.primary_route} • Seats: {driver.available_seats}
+                      </p>
+                    </div>
+                  ))}
+
+                  {!isLoadingAdminApplications && approvedDriverDirectory.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-600">
+                      No approved drivers yet.
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               {isLoadingAdminDriverOverview ? (
