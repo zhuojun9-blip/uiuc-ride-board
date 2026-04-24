@@ -33,6 +33,15 @@ app = FastAPI(
 )
 
 frontend_origin = settings.FRONTEND_URL.rstrip("/")
+allowed_origins = {
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://uiuc-ride.netlify.app",
+    "https://www.uiuc-ride.netlify.app",
+}
+
+if frontend_origin:
+    allowed_origins.add(frontend_origin)
 
 
 @app.on_event("startup")
@@ -43,7 +52,7 @@ async def startup_event() -> None:
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_origin, "http://localhost:5173", "http://localhost:3000"],
+    allow_origins=sorted(allowed_origins),
     allow_origin_regex=r"https://.*\.netlify\.app",
     allow_credentials=True,
     allow_methods=["*"],
