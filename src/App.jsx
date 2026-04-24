@@ -331,6 +331,9 @@ function App() {
   const [isSubmittingRatingId, setIsSubmittingRatingId] = useState(null)
   const [reportDrafts, setReportDrafts] = useState({})
   const [isSubmittingReportId, setIsSubmittingReportId] = useState(null)
+  const [expandedDriverDetailsId, setExpandedDriverDetailsId] = useState(null)
+  const [contactDrafts, setContactDrafts] = useState({})
+  const [isSendingContactId, setIsSendingContactId] = useState(null)
   const [adminReports, setAdminReports] = useState([])
   const [isLoadingAdminReports, setIsLoadingAdminReports] = useState(false)
   const [isUpdatingAdminReportId, setIsUpdatingAdminReportId] = useState(null)
@@ -350,6 +353,14 @@ function App() {
     'ORD → UIUC',
     'UIUC → Midway',
     'UIUC → Downtown Chicago',
+  ]
+
+  const routeFocusOptions = [
+    'All routes',
+    'UIUC-ORD',
+    'ORD-UIUC',
+    'UIUC-Midway',
+    'UIUC-Downtown Chicago',
   ]
 
   const [selectedRoute, setSelectedRoute] = useState('All routes')
@@ -835,7 +846,7 @@ function App() {
     return true
   }
 
-  const handleContactDriver = async (driver) => {
+  const handleContactDriver = async (driver, customBody = '') => {
     if (!requireAuth()) return
     if (!driver.userId || driver.userId === user.id) {
       addNotification({
@@ -847,16 +858,24 @@ function App() {
     }
 
     try {
+      setIsSendingContactId(driver.id)
+      const trimmedCustomBody = (customBody || '').trim()
+      const defaultBody = `Hi! I am interested in your ${driver.route} ride (${driver.departure}).`
       await messageAPI.sendMessage(
         driver.userId,
         `Ride inquiry: ${driver.route}`,
-        `Hi! I am interested in your ${driver.route} ride (${driver.departure}).`
+        trimmedCustomBody || defaultBody
       )
       addNotification({
         type: 'success',
         title: 'Message sent',
         message: 'Your interest was sent to the driver.',
       })
+      setContactDrafts((prev) => ({
+        ...prev,
+        [driver.id]: { isOpen: false, body: '' },
+      }))
+      setActiveUtilityPanel('messages')
       loadMessages()
     } catch (error) {
       addNotification({
@@ -864,7 +883,36 @@ function App() {
         title: 'Could not send message',
         message: error.message || 'Please try again.',
       })
+    } finally {
+      setIsSendingContactId(null)
     }
+  }
+
+  const handleToggleDriverDetails = (driverId) => {
+    setExpandedDriverDetailsId((prev) => (prev === driverId ? null : driverId))
+  }
+
+  const handleToggleContactDraft = (driver) => {
+    if (!requireAuth()) return
+    if (!driver.userId || driver.userId === user?.id) {
+      addNotification({
+        type: 'warning',
+        title: 'Contact unavailable',
+        message: 'This listing cannot be contacted from this account.',
+      })
+      return
+    }
+
+    setContactDrafts((prev) => {
+      const existing = prev[driver.id] || { isOpen: false, body: '' }
+      return {
+        ...prev,
+        [driver.id]: {
+          isOpen: !existing.isOpen,
+          body: existing.body,
+        },
+      }
+    })
   }
 
   const handleOfferRide = async (request) => {
@@ -1649,13 +1697,22 @@ function App() {
 
   const filteredDrivers = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase()
-    const routeFilter = selectedRoute.trim().toLowerCase()
+    const normalizeRouteText = (value) =>
+      (value || '')
+        .toLowerCase()
+        .replace(/(→|->|—|–)/g, '-')
+        .replace(/\s+/g, '')
+        .replace(/[^a-z0-9-]/g, '')
+
+    const routeFilter = normalizeRouteText(selectedRoute)
 
     return driverListings.filter((driver) => {
+      const normalizedDriverRoute = normalizeRouteText(driver.route)
       const routeMatch =
         routeFilter.length === 0 ||
-        routeFilter === 'all routes' ||
-        driver.route.toLowerCase().includes(routeFilter)
+        routeFilter === 'allroutes' ||
+        routeFilter === 'all-routes' ||
+        normalizedDriverRoute.includes(routeFilter)
 
       const keywordMatch =
         keyword.length === 0 ||
@@ -2064,6 +2121,11 @@ function App() {
       </section>
 
       <section id="search" className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
+        <datalist id="route-focus-options">
+          {routeFocusOptions.map((route) => (
+            <option key={`route-focus-option-${route}`} value={route} />
+          ))}
+        </datalist>
         <datalist id="route-options">
           {routes.slice(1).map((route) => (
             <option key={`route-option-${route}`} value={route} />
@@ -2084,7 +2146,7 @@ function App() {
               </span>
               <input
                 type="text"
-                list="route-options"
+                list="route-focus-options"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
                 value={selectedRoute}
                 onChange={(event) => setSelectedRoute(event.target.value)}
@@ -2638,6 +2700,56 @@ function App() {
                 </button>
               </div>
             </form>
+
+            {user && !user.is_admin ? (
+              <div className="mt-6 border-t border-slate-200 pt-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-900">My Application Status</h3>
+                  <button
+                    onClick={() => loadMyApplications({ showError: true })}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                {isLoadingMyApplications ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    Loading your applications...
+                  </div>
+                ) : null}
+
+                <div className="mt-3 space-y-3">
+                  {myApplications.map((application) => (
+                    <article
+                      key={application.id}
+                      className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">Driver application</p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            Coverage: All routes • Seats: {application.available_seats} • Submitted {formatMessageTime(application.created_at)}
+                          </p>
+                        </div>
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getApplicationStatusClass(application.status)}`}>
+                          {application.status}
+                        </span>
+                      </div>
+                      {application.notes ? (
+                        <p className="mt-2 text-sm text-slate-700">{application.notes}</p>
+                      ) : null}
+                    </article>
+                  ))}
+
+                  {!isLoadingMyApplications && myApplications.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">
+                      You have not submitted a driver application yet.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </motion.div>
           ) : null}
 
@@ -2869,13 +2981,16 @@ function App() {
                 ) : (
                   <>
                     <button
-                      onClick={() => handleContactDriver(driver)}
+                      onClick={() => handleToggleContactDraft(driver)}
                       className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
                     >
                       Contact
                     </button>
-                    <button className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100">
-                      View Details
+                    <button
+                      onClick={() => handleToggleDriverDetails(driver.id)}
+                      className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      {expandedDriverDetailsId === driver.id ? 'Hide Details' : 'View Details'}
                     </button>
                     {user && (user.id === driver.userId || user.is_admin) ? (
                       <>
@@ -2904,6 +3019,60 @@ function App() {
                   </button>
                 ) : null}
               </div>
+
+              {expandedDriverDetailsId === driver.id ? (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  <p><span className="font-medium">Route:</span> {driver.route}</p>
+                  <p className="mt-1"><span className="font-medium">Departure:</span> {driver.departure}</p>
+                  <p className="mt-1"><span className="font-medium">Pickup:</span> {driver.pickupLocation || 'Not specified'}</p>
+                  <p className="mt-1"><span className="font-medium">Seats:</span> {driver.seats}</p>
+                  <p className="mt-1"><span className="font-medium">Cost:</span> ${Number(driver.pricePerSeat || 0).toFixed(2)} per seat</p>
+                  {driver.skills ? <p className="mt-1"><span className="font-medium">Skills:</span> {driver.skills}</p> : null}
+                  {driver.labels ? <p className="mt-1"><span className="font-medium">Labels:</span> {driver.labels}</p> : null}
+                  {driver.notesRaw ? <p className="mt-1"><span className="font-medium">Notes:</span> {driver.notesRaw}</p> : null}
+                </div>
+              ) : null}
+
+              {contactDrafts[driver.id]?.isOpen ? (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold text-slate-700">Message driver</p>
+                  <textarea
+                    rows="2"
+                    value={contactDrafts[driver.id]?.body || ''}
+                    onChange={(event) =>
+                      setContactDrafts((prev) => ({
+                        ...prev,
+                        [driver.id]: {
+                          isOpen: true,
+                          body: event.target.value,
+                        },
+                      }))
+                    }
+                    placeholder={`Hi! I am interested in your ${driver.route} ride (${driver.departure}).`}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                  />
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => handleContactDriver(driver, contactDrafts[driver.id]?.body || '')}
+                      disabled={isSendingContactId === driver.id}
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+                    >
+                      {isSendingContactId === driver.id ? 'Sending...' : 'Send'}
+                    </button>
+                    <button
+                      onClick={() =>
+                        setContactDrafts((prev) => ({
+                          ...prev,
+                          [driver.id]: { isOpen: false, body: prev[driver.id]?.body || '' },
+                        }))
+                      }
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               {user && user.id !== driver.userId ? (
                 <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
@@ -3573,60 +3742,6 @@ function App() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
-
-        {user && !user.is_admin ? (
-          <motion.div
-            className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-            {...cardMotion}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold text-slate-900">My Application Status</h3>
-              <button
-                onClick={() => loadMyApplications({ showError: true })}
-                className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-              >
-                Refresh
-              </button>
-            </div>
-
-            {isLoadingMyApplications ? (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                Loading your applications...
-              </div>
-            ) : null}
-
-            <div className="mt-4 space-y-3">
-              {myApplications.map((application) => (
-                <article
-                  key={application.id}
-                  className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">Driver application</p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        Coverage: All routes • Seats: {application.available_seats} • Submitted {formatMessageTime(application.created_at)}
-                      </p>
-                    </div>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getApplicationStatusClass(application.status)}`}>
-                      {application.status}
-                    </span>
-                  </div>
-                  {application.notes ? (
-                    <p className="mt-2 text-sm text-slate-700">{application.notes}</p>
-                  ) : null}
-                </article>
-              ))}
-
-              {!isLoadingMyApplications && myApplications.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
-                  You have not submitted a driver application yet.
-                </div>
-              ) : null}
-            </div>
-          </motion.div>
-        ) : null}
-
         {user?.is_admin ? (
           <motion.div
             className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
