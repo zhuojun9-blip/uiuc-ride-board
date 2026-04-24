@@ -91,6 +91,19 @@ class DriverApplicationBase(BaseModel):
 class DriverApplicationCreate(DriverApplicationBase):
     email: EmailStr
 
+
+class DriverApplicationUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    primary_route: Optional[str] = None
+    available_seats: Optional[int] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+
+
+class DriverApplicationStatusUpdate(BaseModel):
+    status: str
+
 class DriverApplicationResponse(DriverApplicationCreate):
     id: int
     user_id: int

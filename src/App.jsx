@@ -327,6 +327,9 @@ function App() {
   const [isMarkingReadId, setIsMarkingReadId] = useState(null)
   const [replyDrafts, setReplyDrafts] = useState({})
   const [isSendingReplyId, setIsSendingReplyId] = useState(null)
+  const [adminApplications, setAdminApplications] = useState([])
+  const [isLoadingAdminApplications, setIsLoadingAdminApplications] = useState(false)
+  const [isUpdatingApplicationId, setIsUpdatingApplicationId] = useState(null)
   const { addNotification } = useNotification()
 
   const routes = [
@@ -460,6 +463,36 @@ function App() {
       isMounted = false
     }
   }, [addNotification])
+
+  const loadAdminApplications = useCallback(
+    async ({ showError = false } = {}) => {
+      if (!token || !user?.is_admin) {
+        setAdminApplications([])
+        return
+      }
+
+      setIsLoadingAdminApplications(true)
+      try {
+        const applications = await applicationAPI.getAllApplications()
+        setAdminApplications(applications)
+      } catch (error) {
+        if (showError) {
+          addNotification({
+            type: 'error',
+            title: 'Could not load applications',
+            message: error.message || 'Please try again.',
+          })
+        }
+      } finally {
+        setIsLoadingAdminApplications(false)
+      }
+    },
+    [addNotification, token, user?.is_admin]
+  )
+
+  useEffect(() => {
+    loadAdminApplications()
+  }, [loadAdminApplications])
 
   // Set up WebSocket connection for real-time updates
   const handleWebSocketMessage = (message) => {
@@ -637,6 +670,7 @@ function App() {
         title: 'Application submitted',
         message: 'Your driver application was sent successfully.',
       })
+      loadAdminApplications()
       setApplicationForm((prev) => ({
         ...prev,
         availableSeats: '2',
@@ -648,6 +682,31 @@ function App() {
         title: 'Submission failed',
         message: error.message || 'Could not submit your application.',
       })
+    }
+  }
+
+  const handleApplicationStatusUpdate = async (applicationId, status) => {
+    try {
+      setIsUpdatingApplicationId(applicationId)
+      const updated = await applicationAPI.updateApplicationStatus(applicationId, status)
+      setAdminApplications((prev) =>
+        prev.map((application) =>
+          application.id === applicationId ? { ...application, status: updated.status } : application
+        )
+      )
+      addNotification({
+        type: 'success',
+        title: 'Application updated',
+        message: `Application marked as ${updated.status}.`,
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Status update failed',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsUpdatingApplicationId(null)
     }
   }
 
@@ -1937,6 +1996,90 @@ function App() {
             </div>
           </form>
         </motion.div>
+
+        {user?.is_admin ? (
+          <motion.div
+            className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+            {...cardMotion}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-slate-900">Admin Application Review</h3>
+              <button
+                onClick={() => loadAdminApplications({ showError: true })}
+                className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {isLoadingAdminApplications ? (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                Loading applications...
+              </div>
+            ) : null}
+
+            <div className="mt-4 space-y-3">
+              {adminApplications.map((application) => (
+                <article
+                  key={application.id}
+                  className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-900">
+                        {application.full_name}
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-600">{application.email}</p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {application.primary_route} • {application.available_seats} seat{application.available_seats === 1 ? '' : 's'}
+                      </p>
+                      {application.notes ? (
+                        <p className="mt-2 text-sm text-slate-700">{application.notes}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-col items-start gap-2 sm:items-end">
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${
+                          application.status === 'approved'
+                            ? 'bg-green-100 text-green-700'
+                            : application.status === 'rejected'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-amber-100 text-amber-700'
+                        }`}
+                      >
+                        {application.status}
+                      </span>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleApplicationStatusUpdate(application.id, 'approved')}
+                          disabled={isUpdatingApplicationId === application.id || application.status === 'approved'}
+                          className="rounded-lg border border-green-300 px-3 py-1.5 text-xs font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-60"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleApplicationStatusUpdate(application.id, 'rejected')}
+                          disabled={isUpdatingApplicationId === application.id || application.status === 'rejected'}
+                          className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              ))}
+
+              {!isLoadingAdminApplications && adminApplications.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
+                  No driver applications submitted yet.
+                </div>
+              ) : null}
+            </div>
+          </motion.div>
+        ) : null}
       </section>
 
       <section className="mx-auto grid max-w-6xl gap-4 px-4 pb-10 sm:px-6 lg:grid-cols-2 lg:px-8">

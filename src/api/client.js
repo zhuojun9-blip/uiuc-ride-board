@@ -112,12 +112,20 @@ export const applicationAPI = {
 
   getMyApplications: () => apiCall('/applications/'),
 
+  getAllApplications: () => apiCall('/applications/all'),
+
   getApplication: (id) => apiCall(`/applications/${id}`),
 
   updateApplication: (id, data) =>
     apiCall(`/applications/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    }),
+
+  updateApplicationStatus: (id, status) =>
+    apiCall(`/applications/${id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
     }),
 
   deleteApplication: (id) =>
