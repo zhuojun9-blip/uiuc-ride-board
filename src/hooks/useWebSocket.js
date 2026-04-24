@@ -1,5 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 
+const backendHttpUrl = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '')
+const wsBaseUrl = (
+  import.meta.env.VITE_WS_URL || backendHttpUrl.replace(/^http/i, 'ws')
+).replace(/\/$/, '')
+
 export const useWebSocket = (token, onMessage, onNotification) => {
   const [connectionStatus, setConnectionStatus] = useState('disconnected')
   const ws = useRef(null)
@@ -11,8 +16,7 @@ export const useWebSocket = (token, onMessage, onNotification) => {
 
     const connectWebSocket = () => {
       try {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const wsUrl = `${protocol}//${window.location.host}/ws/notifications/${token}`
+        const wsUrl = `${wsBaseUrl}/ws/notifications/${token}`
         
         ws.current = new WebSocket(wsUrl)
 

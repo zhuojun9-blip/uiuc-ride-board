@@ -80,6 +80,39 @@ netlify init
 netlify deploy --build --prod
 ```
 
+## Connect Frontend to Backend
+
+The frontend reads API/WebSocket endpoints from environment variables:
+
+- `VITE_BACKEND_URL` (example: `https://your-backend.onrender.com`)
+- `VITE_WS_URL` (example: `wss://your-backend.onrender.com`)
+
+### Local frontend + local backend
+
+Create `.env` in project root:
+
+```bash
+VITE_BACKEND_URL=http://localhost:8000
+VITE_WS_URL=ws://localhost:8000
+```
+
+### Netlify frontend + deployed backend
+
+In Netlify Site settings → Environment variables, set:
+
+- `VITE_BACKEND_URL=https://your-backend-domain`
+- `VITE_WS_URL=wss://your-backend-domain`
+
+Then trigger a new deploy.
+
+### Backend CORS
+
+Backend allows:
+
+- `FRONTEND_URL` from backend `.env`
+- local dev origins (`http://localhost:5173`, `http://localhost:3000`)
+- all `*.netlify.app` origins
+
 ## Files to Extend Later
 
 - `src/App.jsx`: Main MVP UI and sample data.

@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
+const BASE_URL = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '')
 
 const apiCall = async (endpoint, options = {}) => {
   const token = localStorage.getItem('rideboard_token')
