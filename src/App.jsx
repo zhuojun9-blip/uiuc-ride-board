@@ -265,6 +265,8 @@ function App() {
   const [inboxMessages, setInboxMessages] = useState([])
   const [sentMessages, setSentMessages] = useState([])
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
+  const [adminChatMessages, setAdminChatMessages] = useState([])
+  const [isLoadingAdminChats, setIsLoadingAdminChats] = useState(false)
   const [messageTab, setMessageTab] = useState('inbox')
   const [isMarkingReadId, setIsMarkingReadId] = useState(null)
   const [replyDrafts, setReplyDrafts] = useState({})
@@ -352,6 +354,36 @@ function App() {
   useEffect(() => {
     loadMessages()
   }, [loadMessages])
+
+  const loadAdminChats = useCallback(
+    async ({ showError = false } = {}) => {
+      if (!token || !user?.is_admin) {
+        setAdminChatMessages([])
+        return
+      }
+
+      setIsLoadingAdminChats(true)
+      try {
+        const messages = await messageAPI.getAdminMessages()
+        setAdminChatMessages(messages)
+      } catch (error) {
+        if (showError) {
+          addNotification({
+            type: 'error',
+            title: 'Could not load chat monitor',
+            message: error.message || 'Please try again.',
+          })
+        }
+      } finally {
+        setIsLoadingAdminChats(false)
+      }
+    },
+    [addNotification, token, user?.is_admin]
+  )
+
+  useEffect(() => {
+    loadAdminChats()
+  }, [loadAdminChats])
 
   useEffect(() => {
     let isMounted = true
@@ -545,6 +577,48 @@ function App() {
     () => inboxMessages.filter((message) => !message.is_read).length,
     [inboxMessages]
   )
+
+  const adminChatConversations = useMemo(() => {
+    const conversationMap = new Map()
+
+    for (const message of adminChatMessages) {
+      const participantIds = [message.sender_id, message.recipient_id].sort((left, right) => left - right)
+      const key = `${participantIds[0]}-${participantIds[1]}`
+
+      if (!conversationMap.has(key)) {
+        const firstLabel = message.sender_id === participantIds[0]
+          ? (message.sender_name || `User #${message.sender_id}`)
+          : (message.recipient_name || `User #${message.recipient_id}`)
+        const secondLabel = message.sender_id === participantIds[1]
+          ? (message.sender_name || `User #${message.sender_id}`)
+          : (message.recipient_name || `User #${message.recipient_id}`)
+
+        conversationMap.set(key, {
+          key,
+          participantAId: participantIds[0],
+          participantBId: participantIds[1],
+          participantALabel: firstLabel,
+          participantBLabel: secondLabel,
+          messages: [],
+        })
+      }
+
+      conversationMap.get(key).messages.push(message)
+    }
+
+    return Array.from(conversationMap.values())
+      .map((conversation) => ({
+        ...conversation,
+        messages: conversation.messages.sort(
+          (left, right) => new Date(left.created_at) - new Date(right.created_at)
+        ),
+      }))
+      .sort((left, right) => {
+        const leftLast = left.messages[left.messages.length - 1]
+        const rightLast = right.messages[right.messages.length - 1]
+        return new Date(rightLast?.created_at || 0) - new Date(leftLast?.created_at || 0)
+      })
+  }, [adminChatMessages])
 
   const adminRideLedger = useMemo(() => {
     return adminDriverOverview
@@ -2083,6 +2157,60 @@ function App() {
               {isLoadingMessages ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                   Loading messages...
+                </div>
+              ) : null}
+
+              {user?.is_admin ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-slate-900">Admin Chat Monitor</h3>
+                    <button
+                      onClick={() => loadAdminChats({ showError: true })}
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
+                  {isLoadingAdminChats ? (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                      Loading conversations...
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 space-y-3">
+                    {adminChatConversations.map((conversation) => (
+                      <article key={conversation.key} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                        <p className="text-xs font-semibold text-slate-800">
+                          {conversation.participantALabel} ↔ {conversation.participantBLabel}
+                        </p>
+                        <div className="mt-2 space-y-2">
+                          {conversation.messages.map((message) => (
+                            <div
+                              key={`admin-chat-${message.id}`}
+                              className={`rounded-md px-2.5 py-2 text-xs ${
+                                message.sender_id === conversation.participantAId
+                                  ? 'bg-blue-50 text-blue-900'
+                                  : 'bg-indigo-50 text-indigo-900'
+                              }`}
+                            >
+                              <p className="font-semibold">
+                                {message.sender_name || `User #${message.sender_id}`} → {message.recipient_name || `User #${message.recipient_id}`}
+                              </p>
+                              <p className="mt-1">{message.body}</p>
+                              <p className="mt-1 text-[10px] text-slate-500">{formatMessageTime(message.created_at)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </article>
+                    ))}
+
+                    {!isLoadingAdminChats && adminChatConversations.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
+                        No chat history is available yet.
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 

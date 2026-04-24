@@ -160,6 +160,8 @@ export const messageAPI = {
 
   getSent: () => apiCall('/messages/sent'),
 
+  getAdminMessages: () => apiCall('/messages/admin/all'),
+
   markAsRead: (id) =>
     apiCall(`/messages/${id}/read`, {
       method: 'PUT',

@@ -64,6 +64,18 @@ async def get_sent(
     ).order_by(Message.created_at.desc()).all()
     return [serialize_message(message, db) for message in messages]
 
+
+@router.get("/admin/all", response_model=List[schemas.MessageResponse])
+async def get_all_messages_admin(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    messages = db.query(Message).order_by(Message.created_at.asc()).all()
+    return [serialize_message(message, db) for message in messages]
+
 @router.put("/{message_id}/read", response_model=schemas.MessageResponse)
 async def mark_message_read(
     message_id: int,
