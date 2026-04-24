@@ -1762,7 +1762,17 @@ function App() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
-        <div className="mb-6">
+        {activeUtilityPanel ? (
+        <div className="fixed inset-0 z-40 bg-slate-900/30 p-4 sm:p-6">
+          <div className="mx-auto mt-16 max-h-[calc(100vh-6rem)] max-w-5xl overflow-y-auto rounded-2xl">
+            <div className="mb-3 flex justify-end">
+              <button
+                onClick={() => setActiveUtilityPanel(null)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Close
+              </button>
+            </div>
           {activeUtilityPanel === 'listing' ? (
             <motion.div
             className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
@@ -2164,7 +2174,9 @@ function App() {
             </form>
           </motion.div>
           ) : null}
+          </div>
         </div>
+        ) : null}
 
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-2xl font-semibold text-slate-900">Driver Listings</h2>
