@@ -4,7 +4,7 @@ from typing import List
 
 from auth import get_current_user
 from database import get_db
-from models import Driver, RideReview, User
+from models import Driver, RideReview, SharedRideRequest, User
 import schemas
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
@@ -42,6 +42,17 @@ async def create_review(
 
     if current_user.id == review_data.driver_user_id:
         raise HTTPException(status_code=400, detail="Drivers cannot review their own rides")
+
+    approved_shared_ride = db.query(SharedRideRequest).filter(
+        SharedRideRequest.driver_listing_id == review_data.driver_listing_id,
+        SharedRideRequest.rider_user_id == current_user.id,
+        SharedRideRequest.status == "approved",
+    ).first()
+    if not approved_shared_ride:
+        raise HTTPException(
+            status_code=403,
+            detail="Only riders with an approved shared ride for this listing can submit a rating",
+        )
 
     existing_review = db.query(RideReview).filter(
         RideReview.reviewer_id == current_user.id,

@@ -727,6 +727,15 @@ function App() {
     [inboxMessages]
   )
 
+  const approvedSharedRideListingIds = useMemo(() => {
+    if (!user) return new Set()
+    return new Set(
+      mySharedRideRequests
+        .filter((request) => request.status === 'approved')
+        .map((request) => request.driver_listing_id)
+    )
+  }, [mySharedRideRequests, user])
+
   const adminChatConversations = useMemo(() => {
     const conversationMap = new Map()
 
@@ -3123,98 +3132,106 @@ function App() {
                     </div>
                   </div>
 
-                  <div>
-                    <p className="text-xs font-semibold text-slate-700">Rate this ride experience</p>
-                    <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <select
-                        value={ratingDrafts[driver.id]?.rating || '5'}
-                        onChange={(event) =>
-                          setRatingDrafts((prev) => ({
-                            ...prev,
-                            [driver.id]: {
-                              rating: event.target.value,
-                              comment: prev[driver.id]?.comment || '',
-                            },
-                          }))
-                        }
-                        className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
-                      >
-                        <option value="5">5 - Excellent</option>
-                        <option value="4">4 - Good</option>
-                        <option value="3">3 - Okay</option>
-                        <option value="2">2 - Poor</option>
-                        <option value="1">1 - Bad</option>
-                      </select>
-                      <input
-                        type="text"
-                        value={ratingDrafts[driver.id]?.comment || ''}
-                        onChange={(event) =>
-                          setRatingDrafts((prev) => ({
-                            ...prev,
-                            [driver.id]: {
-                              rating: prev[driver.id]?.rating || '5',
-                              comment: event.target.value,
-                            },
-                          }))
-                        }
-                        placeholder="Optional comment"
-                        className="flex-1 rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
-                      />
-                      <button
-                        onClick={() => handleSubmitRideRating(driver)}
-                        disabled={isSubmittingRatingId === driver.id}
-                        className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60"
-                      >
-                        {isSubmittingRatingId === driver.id ? 'Submitting...' : 'Submit Rating'}
-                      </button>
-                    </div>
-                  </div>
+                  {approvedSharedRideListingIds.has(driver.id) ? (
+                    <>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-700">Rate this ride experience</p>
+                        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <select
+                            value={ratingDrafts[driver.id]?.rating || '5'}
+                            onChange={(event) =>
+                              setRatingDrafts((prev) => ({
+                                ...prev,
+                                [driver.id]: {
+                                  rating: event.target.value,
+                                  comment: prev[driver.id]?.comment || '',
+                                },
+                              }))
+                            }
+                            className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                          >
+                            <option value="5">5 - Excellent</option>
+                            <option value="4">4 - Good</option>
+                            <option value="3">3 - Okay</option>
+                            <option value="2">2 - Poor</option>
+                            <option value="1">1 - Bad</option>
+                          </select>
+                          <input
+                            type="text"
+                            value={ratingDrafts[driver.id]?.comment || ''}
+                            onChange={(event) =>
+                              setRatingDrafts((prev) => ({
+                                ...prev,
+                                [driver.id]: {
+                                  rating: prev[driver.id]?.rating || '5',
+                                  comment: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="Optional comment"
+                            className="flex-1 rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                          />
+                          <button
+                            onClick={() => handleSubmitRideRating(driver)}
+                            disabled={isSubmittingRatingId === driver.id}
+                            className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60"
+                          >
+                            {isSubmittingRatingId === driver.id ? 'Submitting...' : 'Submit Rating'}
+                          </button>
+                        </div>
+                      </div>
 
-                  <div>
-                    <p className="text-xs font-semibold text-slate-700">Report to admin</p>
-                    <div className="mt-2 space-y-2">
-                      <select
-                        value={reportDrafts[driver.id]?.category || 'safety'}
-                        onChange={(event) =>
-                          setReportDrafts((prev) => ({
-                            ...prev,
-                            [driver.id]: {
-                              category: event.target.value,
-                              details: prev[driver.id]?.details || '',
-                            },
-                          }))
-                        }
-                        className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
-                      >
-                        <option value="safety">Safety concern</option>
-                        <option value="behavior">Behavior issue</option>
-                        <option value="payment">Payment dispute</option>
-                        <option value="other">Other</option>
-                      </select>
-                      <textarea
-                        rows="2"
-                        value={reportDrafts[driver.id]?.details || ''}
-                        onChange={(event) =>
-                          setReportDrafts((prev) => ({
-                            ...prev,
-                            [driver.id]: {
-                              category: prev[driver.id]?.category || 'safety',
-                              details: event.target.value,
-                            },
-                          }))
-                        }
-                        placeholder="Describe the issue for admins"
-                        className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
-                      />
-                      <button
-                        onClick={() => handleSubmitRideReport(driver)}
-                        disabled={isSubmittingReportId === driver.id}
-                        className="rounded-lg border border-red-300 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
-                      >
-                        {isSubmittingReportId === driver.id ? 'Sending...' : 'Send Report'}
-                      </button>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-700">Report to admin</p>
+                        <div className="mt-2 space-y-2">
+                          <select
+                            value={reportDrafts[driver.id]?.category || 'safety'}
+                            onChange={(event) =>
+                              setReportDrafts((prev) => ({
+                                ...prev,
+                                [driver.id]: {
+                                  category: event.target.value,
+                                  details: prev[driver.id]?.details || '',
+                                },
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                          >
+                            <option value="safety">Safety concern</option>
+                            <option value="behavior">Behavior issue</option>
+                            <option value="payment">Payment dispute</option>
+                            <option value="other">Other</option>
+                          </select>
+                          <textarea
+                            rows="2"
+                            value={reportDrafts[driver.id]?.details || ''}
+                            onChange={(event) =>
+                              setReportDrafts((prev) => ({
+                                ...prev,
+                                [driver.id]: {
+                                  category: prev[driver.id]?.category || 'safety',
+                                  details: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="Describe the issue for admins"
+                            className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                          />
+                          <button
+                            onClick={() => handleSubmitRideReport(driver)}
+                            disabled={isSubmittingReportId === driver.id}
+                            className="rounded-lg border border-red-300 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                          >
+                            {isSubmittingReportId === driver.id ? 'Sending...' : 'Send Report'}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
+                      Only riders with an approved shared ride for this listing can rate or report.
                     </div>
-                  </div>
+                  )}
                 </div>
               ) : null}
             </motion.article>

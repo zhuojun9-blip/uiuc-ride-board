@@ -4,7 +4,7 @@ from typing import List
 
 from auth import get_current_user
 from database import get_db
-from models import Driver, RideReport, User
+from models import Driver, RideReport, SharedRideRequest, User
 import schemas
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -41,6 +41,17 @@ async def create_report(
 
     if current_user.id == report_data.against_user_id:
         raise HTTPException(status_code=400, detail="Cannot report yourself")
+
+    approved_shared_ride = db.query(SharedRideRequest).filter(
+        SharedRideRequest.driver_listing_id == report_data.driver_listing_id,
+        SharedRideRequest.rider_user_id == current_user.id,
+        SharedRideRequest.status == "approved",
+    ).first()
+    if not approved_shared_ride:
+        raise HTTPException(
+            status_code=403,
+            detail="Only riders with an approved shared ride for this listing can report an issue",
+        )
 
     report = RideReport(
         reporter_id=current_user.id,
