@@ -1665,10 +1665,11 @@ function App() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
-        <motion.div
-          className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-          {...cardMotion}
-        >
+        <div className="mb-6 grid gap-5 lg:grid-cols-3">
+          <motion.div
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+            {...cardMotion}
+          >
           <h3 className="mb-3 text-lg font-semibold text-slate-900">Post a Driver Listing</h3>
           <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreateDriverListing}>
             <label>
@@ -1796,7 +1797,268 @@ function App() {
               </button>
             </div>
           </form>
-        </motion.div>
+          </motion.div>
+
+          {user ? (
+            <motion.div
+              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+              {...cardMotion}
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-slate-800">
+                    <MessageSquare size={18} />
+                    <h2 className="text-2xl font-semibold text-slate-900">Messages</h2>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">
+                    View ride inquiries and offers you have sent or received.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setMessageTab('inbox')}
+                    className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                      messageTab === 'inbox'
+                        ? 'bg-slate-900 text-white'
+                        : 'border border-slate-300 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Inbox{unreadInboxCount > 0 ? ` (${unreadInboxCount})` : ''}
+                  </button>
+                  <button
+                    onClick={() => setMessageTab('sent')}
+                    className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                      messageTab === 'sent'
+                        ? 'bg-slate-900 text-white'
+                        : 'border border-slate-300 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Sent
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {isLoadingMessages ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    Loading messages...
+                  </div>
+                ) : null}
+
+                {user?.is_admin ? (
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-slate-900">Admin Chat Monitor</h3>
+                      <button
+                        onClick={() => loadAdminChats({ showError: true })}
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+
+                    {isLoadingAdminChats ? (
+                      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                        Loading conversations...
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 space-y-3">
+                      {adminChatConversations.map((conversation) => (
+                        <article key={conversation.key} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                          <p className="text-xs font-semibold text-slate-800">
+                            {conversation.participantALabel} ↔ {conversation.participantBLabel}
+                          </p>
+                          <div className="mt-2 space-y-2">
+                            {conversation.messages.map((message) => (
+                              <div
+                                key={`admin-chat-${message.id}`}
+                                className={`rounded-md px-2.5 py-2 text-xs ${
+                                  message.sender_id === conversation.participantAId
+                                    ? 'bg-blue-50 text-blue-900'
+                                    : 'bg-indigo-50 text-indigo-900'
+                                }`}
+                              >
+                                <p className="font-semibold">
+                                  {message.sender_name || `User #${message.sender_id}`} → {message.recipient_name || `User #${message.recipient_id}`}
+                                </p>
+                                <p className="mt-1">{message.body}</p>
+                                <p className="mt-1 text-[10px] text-slate-500">{formatMessageTime(message.created_at)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </article>
+                      ))}
+
+                      {!isLoadingAdminChats && adminChatConversations.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
+                          No chat history is available yet.
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {(messageTab === 'inbox' ? inboxMessages : sentMessages).map((message) => {
+                  const isInboxView = messageTab === 'inbox'
+                  const replyDraft = replyDrafts[message.id] || ''
+
+                  return (
+                    <article
+                      key={message.id}
+                      className={`rounded-xl border p-4 ${
+                        isInboxView && !message.is_read
+                          ? 'border-blue-200 bg-blue-50/40'
+                          : 'border-slate-200 bg-slate-50/50'
+                      }`}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-slate-900">{message.subject}</h3>
+                            {isInboxView && !message.is_read ? (
+                              <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                                New
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {isInboxView
+                              ? `From ${message.sender_name || `User #${message.sender_id}`}`
+                              : `To ${message.recipient_name || `User #${message.recipient_id}`}`} • ${formatMessageTime(message.created_at)}
+                          </p>
+                        </div>
+                        {isInboxView && !message.is_read ? (
+                          <button
+                            onClick={() => handleMarkMessageRead(message.id)}
+                            disabled={isMarkingReadId === message.id}
+                            className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60"
+                          >
+                            {isMarkingReadId === message.id ? 'Saving...' : 'Mark as read'}
+                          </button>
+                        ) : null}
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-slate-700">{message.body}</p>
+
+                      {isInboxView ? (
+                        <div className="mt-3 space-y-2">
+                          <textarea
+                            rows="2"
+                            value={replyDraft}
+                            onChange={(event) => handleReplyChange(message.id, event.target.value)}
+                            placeholder="Write a quick reply..."
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                          />
+                          <div>
+                            <button
+                              onClick={() => handleSendReply(message)}
+                              disabled={isSendingReplyId === message.id}
+                              className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+                            >
+                              {isSendingReplyId === message.id ? 'Sending...' : 'Send Reply'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </article>
+                  )
+                })}
+
+                {!isLoadingMessages && (messageTab === 'inbox' ? inboxMessages : sentMessages).length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
+                    {messageTab === 'inbox'
+                      ? 'No messages yet. When riders or drivers contact you, they will appear here.'
+                      : 'You have not sent any messages yet.'}
+                  </div>
+                ) : null}
+              </div>
+            </motion.div>
+          ) : null}
+
+          <motion.div
+            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+            {...cardMotion}
+          >
+            <h2 className="text-2xl font-semibold text-slate-900">Driver Application</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Interested in posting rides? Submit your basic info below.
+            </p>
+            <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleApplicationSubmit}>
+              <label>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">Full name</span>
+                <input
+                  type="text"
+                  placeholder="Your name"
+                  value={applicationForm.fullName}
+                  onChange={(event) =>
+                    setApplicationForm((prev) => ({ ...prev, fullName: event.target.value }))
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">UIUC email</span>
+                <input
+                  type="email"
+                  placeholder="netid@illinois.edu"
+                  value={applicationForm.email}
+                  onChange={(event) =>
+                    setApplicationForm((prev) => ({ ...prev, email: event.target.value }))
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                />
+              </label>
+              <label>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">Primary route</span>
+                <select
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                  value={applicationForm.primaryRoute}
+                  onChange={(event) =>
+                    setApplicationForm((prev) => ({ ...prev, primaryRoute: event.target.value }))
+                  }
+                >
+                  {routes.slice(1).map((route) => (
+                    <option key={route}>{route}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">Available seats</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="6"
+                  placeholder="2"
+                  value={applicationForm.availableSeats}
+                  onChange={(event) =>
+                    setApplicationForm((prev) => ({ ...prev, availableSeats: event.target.value }))
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                />
+              </label>
+              <label className="md:col-span-2">
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">Notes</span>
+                <textarea
+                  rows="4"
+                  placeholder="Share your typical departure times, pickup area, and any rider expectations"
+                  value={applicationForm.notes}
+                  onChange={(event) =>
+                    setApplicationForm((prev) => ({ ...prev, notes: event.target.value }))
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                />
+              </label>
+              <div className="md:col-span-2">
+                <button
+                  type="submit"
+                  className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                >
+                  Submit Application
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
 
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-2xl font-semibold text-slate-900">Driver Listings</h2>
@@ -2528,265 +2790,6 @@ function App() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
-        {user ? (
-          <motion.div
-            className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-            {...cardMotion}
-          >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-slate-800">
-                  <MessageSquare size={18} />
-                  <h2 className="text-2xl font-semibold text-slate-900">Messages</h2>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">
-                  View ride inquiries and offers you have sent or received.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setMessageTab('inbox')}
-                  className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                    messageTab === 'inbox'
-                      ? 'bg-slate-900 text-white'
-                      : 'border border-slate-300 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  Inbox{unreadInboxCount > 0 ? ` (${unreadInboxCount})` : ''}
-                </button>
-                <button
-                  onClick={() => setMessageTab('sent')}
-                  className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                    messageTab === 'sent'
-                      ? 'bg-slate-900 text-white'
-                      : 'border border-slate-300 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  Sent
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {isLoadingMessages ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                  Loading messages...
-                </div>
-              ) : null}
-
-              {user?.is_admin ? (
-                <div className="rounded-xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-slate-900">Admin Chat Monitor</h3>
-                    <button
-                      onClick={() => loadAdminChats({ showError: true })}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-
-                  {isLoadingAdminChats ? (
-                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                      Loading conversations...
-                    </div>
-                  ) : null}
-
-                  <div className="mt-3 space-y-3">
-                    {adminChatConversations.map((conversation) => (
-                      <article key={conversation.key} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-                        <p className="text-xs font-semibold text-slate-800">
-                          {conversation.participantALabel} ↔ {conversation.participantBLabel}
-                        </p>
-                        <div className="mt-2 space-y-2">
-                          {conversation.messages.map((message) => (
-                            <div
-                              key={`admin-chat-${message.id}`}
-                              className={`rounded-md px-2.5 py-2 text-xs ${
-                                message.sender_id === conversation.participantAId
-                                  ? 'bg-blue-50 text-blue-900'
-                                  : 'bg-indigo-50 text-indigo-900'
-                              }`}
-                            >
-                              <p className="font-semibold">
-                                {message.sender_name || `User #${message.sender_id}`} → {message.recipient_name || `User #${message.recipient_id}`}
-                              </p>
-                              <p className="mt-1">{message.body}</p>
-                              <p className="mt-1 text-[10px] text-slate-500">{formatMessageTime(message.created_at)}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </article>
-                    ))}
-
-                    {!isLoadingAdminChats && adminChatConversations.length === 0 ? (
-                      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
-                        No chat history is available yet.
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {(messageTab === 'inbox' ? inboxMessages : sentMessages).map((message) => {
-                const isInboxView = messageTab === 'inbox'
-                const replyDraft = replyDrafts[message.id] || ''
-
-                return (
-                  <article
-                    key={message.id}
-                    className={`rounded-xl border p-4 ${
-                      isInboxView && !message.is_read
-                        ? 'border-blue-200 bg-blue-50/40'
-                        : 'border-slate-200 bg-slate-50/50'
-                    }`}
-                  >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-semibold text-slate-900">{message.subject}</h3>
-                          {isInboxView && !message.is_read ? (
-                            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                              New
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {isInboxView
-                            ? `From ${message.sender_name || `User #${message.sender_id}`}`
-                            : `To ${message.recipient_name || `User #${message.recipient_id}`}`} • ${formatMessageTime(message.created_at)}
-                        </p>
-                      </div>
-                      {isInboxView && !message.is_read ? (
-                        <button
-                          onClick={() => handleMarkMessageRead(message.id)}
-                          disabled={isMarkingReadId === message.id}
-                          className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60"
-                        >
-                          {isMarkingReadId === message.id ? 'Saving...' : 'Mark as read'}
-                        </button>
-                      ) : null}
-                    </div>
-                    <p className="mt-3 text-sm leading-6 text-slate-700">{message.body}</p>
-
-                    {isInboxView ? (
-                      <div className="mt-3 space-y-2">
-                        <textarea
-                          rows="2"
-                          value={replyDraft}
-                          onChange={(event) => handleReplyChange(message.id, event.target.value)}
-                          placeholder="Write a quick reply..."
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
-                        />
-                        <div>
-                          <button
-                            onClick={() => handleSendReply(message)}
-                            disabled={isSendingReplyId === message.id}
-                            className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
-                          >
-                            {isSendingReplyId === message.id ? 'Sending...' : 'Send Reply'}
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </article>
-                )
-              })}
-
-              {!isLoadingMessages && (messageTab === 'inbox' ? inboxMessages : sentMessages).length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
-                  {messageTab === 'inbox'
-                    ? 'No messages yet. When riders or drivers contact you, they will appear here.'
-                    : 'You have not sent any messages yet.'}
-                </div>
-              ) : null}
-            </div>
-          </motion.div>
-        ) : null}
-
-        <motion.div
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-          {...cardMotion}
-        >
-          <h2 className="text-2xl font-semibold text-slate-900">Driver Application</h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Interested in posting rides? Submit your basic info below.
-          </p>
-          <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleApplicationSubmit}>
-            <label>
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">Full name</span>
-              <input
-                type="text"
-                placeholder="Your name"
-                value={applicationForm.fullName}
-                onChange={(event) =>
-                  setApplicationForm((prev) => ({ ...prev, fullName: event.target.value }))
-                }
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
-              />
-            </label>
-            <label>
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">UIUC email</span>
-              <input
-                type="email"
-                placeholder="netid@illinois.edu"
-                value={applicationForm.email}
-                onChange={(event) =>
-                  setApplicationForm((prev) => ({ ...prev, email: event.target.value }))
-                }
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
-              />
-            </label>
-            <label>
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">Primary route</span>
-              <select
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
-                value={applicationForm.primaryRoute}
-                onChange={(event) =>
-                  setApplicationForm((prev) => ({ ...prev, primaryRoute: event.target.value }))
-                }
-              >
-                {routes.slice(1).map((route) => (
-                  <option key={route}>{route}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">Available seats</span>
-              <input
-                type="number"
-                min="1"
-                max="6"
-                placeholder="2"
-                value={applicationForm.availableSeats}
-                onChange={(event) =>
-                  setApplicationForm((prev) => ({ ...prev, availableSeats: event.target.value }))
-                }
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
-              />
-            </label>
-            <label className="md:col-span-2">
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">Notes</span>
-              <textarea
-                rows="4"
-                placeholder="Share your typical departure times, pickup area, and any rider expectations"
-                value={applicationForm.notes}
-                onChange={(event) =>
-                  setApplicationForm((prev) => ({ ...prev, notes: event.target.value }))
-                }
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
-              />
-            </label>
-            <div className="md:col-span-2">
-              <button
-                type="submit"
-                className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
-              >
-                Submit Application
-              </button>
-            </div>
-          </form>
-        </motion.div>
 
         {user && !user.is_admin ? (
           <motion.div
