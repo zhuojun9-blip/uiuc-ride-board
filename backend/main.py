@@ -1,13 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 import logging
+from pathlib import Path
 from database import Base, engine, settings
 from routes import auth, drivers, requests, applications, messages, websocket, reviews, reports
 
 logger = logging.getLogger(__name__)
 database_ready = False
+uploads_dir = Path(__file__).resolve().parent / "uploads"
+uploads_dir.mkdir(parents=True, exist_ok=True)
 
 
 def initialize_database() -> bool:
@@ -18,6 +22,9 @@ def initialize_database() -> bool:
             with engine.begin() as connection:
                 connection.execute(
                     text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE")
+                )
+                connection.execute(
+                    text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT")
                 )
                 connection.execute(
                     text("ALTER TABLE drivers ADD COLUMN IF NOT EXISTS price_per_seat DOUBLE PRECISION DEFAULT 0")
@@ -67,6 +74,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 # Include routers
 app.include_router(auth.router)

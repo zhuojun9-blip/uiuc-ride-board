@@ -52,6 +52,37 @@ export const authAPI = {
     }),
 
   getCurrentUser: () => apiCall('/auth/me'),
+
+  uploadAvatar: async (file) => {
+    const token = localStorage.getItem('rideboard_token')
+    const formData = new FormData()
+    formData.append('file', file)
+
+    let response
+    try {
+      response = await fetch(`${BASE_URL}/auth/avatar`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      })
+    } catch {
+      throw new Error('Network error: could not reach the backend service.')
+    }
+
+    if (response.status === 401) {
+      localStorage.removeItem('rideboard_user')
+      localStorage.removeItem('rideboard_token')
+      window.location.href = '/'
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => null)
+      const fallbackMessage = `API error (${response.status}): ${response.statusText}`
+      throw new Error(error?.detail || error?.message || fallbackMessage)
+    }
+
+    return response.json()
+  },
 }
 
 // Driver endpoints

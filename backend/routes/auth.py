@@ -1,12 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 from datetime import timedelta
+from pathlib import Path
+from uuid import uuid4
 from database import get_db, is_admin_email, settings
 from models import User
 import schemas
 from auth import get_password_hash, verify_password, create_access_token, get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+avatar_upload_dir = Path(__file__).resolve().parents[1] / "uploads" / "avatars"
+avatar_upload_dir.mkdir(parents=True, exist_ok=True)
 
 @router.post("/register", response_model=schemas.Token)
 async def register(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -81,4 +85,33 @@ async def login(user_data: schemas.UserLogin, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=schemas.UserResponse)
 async def get_current_user_profile(current_user: User = Depends(get_current_user)):
+    return schemas.UserResponse.from_orm(current_user)
+
+
+@router.post("/avatar", response_model=schemas.UserResponse)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Avatar must be a JPG, PNG, WEBP, or GIF image")
+
+    extension = Path(file.filename or "avatar").suffix.lower() or ".png"
+    if extension not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+        extension = ".png"
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Avatar image must be 2MB or smaller")
+
+    filename = f"user_{current_user.id}_{uuid4().hex}{extension}"
+    file_path = avatar_upload_dir / filename
+    file_path.write_bytes(file_bytes)
+
+    current_user.avatar_url = f"/uploads/avatars/{filename}"
+    db.commit()
+    db.refresh(current_user)
+
     return schemas.UserResponse.from_orm(current_user)

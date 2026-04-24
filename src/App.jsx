@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import {
   Bus,
@@ -12,6 +12,7 @@ import {
   Search,
   ShieldCheck,
   User,
+  Users,
   MessageSquare,
 } from 'lucide-react'
 import { useNotification } from './providers/NotificationProvider'
@@ -292,7 +293,9 @@ function App() {
   const [adminReports, setAdminReports] = useState([])
   const [isLoadingAdminReports, setIsLoadingAdminReports] = useState(false)
   const [isUpdatingAdminReportId, setIsUpdatingAdminReportId] = useState(null)
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
   const { addNotification } = useNotification()
+  const avatarInputRef = useRef(null)
 
   const routes = [
     'All routes',
@@ -308,6 +311,7 @@ function App() {
   const [showAllDriverListings, setShowAllDriverListings] = useState(false)
   const [adminHistorySearchTerm, setAdminHistorySearchTerm] = useState('')
   const [showAllAdminDriverHistory, setShowAllAdminDriverHistory] = useState(false)
+  const backendBaseUrl = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '')
 
   // Load user and token from localStorage on mount
   useEffect(() => {
@@ -692,6 +696,7 @@ function App() {
   const handleLogout = () => {
     setUser(null)
     setToken(null)
+    setActiveUtilityPanel(null)
     localStorage.removeItem('rideboard_user')
     localStorage.removeItem('rideboard_token')
     setInboxMessages([])
@@ -701,6 +706,32 @@ function App() {
       title: 'Logged Out',
       message: 'You have been logged out successfully.',
     })
+  }
+
+  const handleAvatarUpload = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      setIsUploadingAvatar(true)
+      const updatedUser = await authAPI.uploadAvatar(file)
+      setUser(updatedUser)
+      localStorage.setItem('rideboard_user', JSON.stringify(updatedUser))
+      addNotification({
+        type: 'success',
+        title: 'Avatar updated',
+        message: 'Your profile image was uploaded successfully.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Avatar upload failed',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsUploadingAvatar(false)
+      event.target.value = ''
+    }
   }
 
   const requireAuth = () => {
@@ -1479,6 +1510,61 @@ function App() {
     )
   }, [adminApplications])
 
+  const adminDriverDirectory = useMemo(() => {
+    const byUserId = new Map()
+
+    for (const application of adminApplications) {
+      const existing = byUserId.get(application.user_id)
+      if (!existing || new Date(application.created_at) > new Date(existing.submittedAt || 0)) {
+        byUserId.set(application.user_id, {
+          userId: application.user_id,
+          name: application.full_name,
+          email: application.email,
+          status: application.status,
+          primaryRoute: application.primary_route,
+          seats: application.available_seats,
+          submittedAt: application.created_at,
+          totalRides: 0,
+          activeRides: 0,
+        })
+      }
+    }
+
+    for (const history of adminDriverOverview) {
+      const existing = byUserId.get(history.driver_user_id)
+      if (existing) {
+        byUserId.set(history.driver_user_id, {
+          ...existing,
+          totalRides: history.total_rides,
+          activeRides: history.active_rides,
+        })
+      } else {
+        byUserId.set(history.driver_user_id, {
+          userId: history.driver_user_id,
+          name: history.driver_name,
+          email: history.driver_email,
+          status: 'approved',
+          primaryRoute: '-',
+          seats: '-',
+          submittedAt: history.rides?.[0]?.created_at || null,
+          totalRides: history.total_rides,
+          activeRides: history.active_rides,
+        })
+      }
+    }
+
+    return Array.from(byUserId.values()).sort((left, right) => left.name.localeCompare(right.name))
+  }, [adminApplications, adminDriverOverview])
+
+  const resolveAvatarUrl = useCallback(
+    (avatarUrl) => {
+      if (!avatarUrl) return ''
+      if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) return avatarUrl
+      return `${backendBaseUrl}${avatarUrl}`
+    },
+    [backendBaseUrl]
+  )
+
   const cardMotion = {
     initial: { opacity: 0, y: 12 },
     whileInView: { opacity: 1, y: 0 },
@@ -1486,15 +1572,19 @@ function App() {
     viewport: { once: true, amount: 0.15 },
   }
 
+  const DISPLAY_TIMEZONE = 'America/Chicago'
+
   const formatMessageTime = (value) => {
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return 'Unknown time'
 
     return date.toLocaleString([], {
+      timeZone: DISPLAY_TIMEZONE,
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
+      timeZoneName: 'short',
     })
   }
 
@@ -1631,6 +1721,24 @@ function App() {
                 <Car size={16} />
                 <span className="text-[10px] leading-none">Post</span>
               </button>
+
+              {user?.is_admin ? (
+                <button
+                  title="All Drivers"
+                  aria-label="All Drivers"
+                  onClick={() =>
+                    setActiveUtilityPanel((prev) => (prev === 'drivers' ? null : 'drivers'))
+                  }
+                  className={`inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
+                    activeUtilityPanel === 'drivers'
+                      ? 'border-blue-300 bg-blue-50 text-blue-700'
+                      : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <Users size={16} />
+                  <span className="text-[10px] leading-none">Drivers</span>
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -1651,6 +1759,34 @@ function App() {
             {user ? (
               <>
                 <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <div className="relative">
+                    {user.avatar_url ? (
+                      <img
+                        src={resolveAvatarUrl(user.avatar_url)}
+                        alt="avatar"
+                        className="h-8 w-8 rounded-full border border-slate-300 object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-slate-100 text-xs font-semibold text-slate-700">
+                        {user.name?.charAt(0)?.toUpperCase() || 'U'}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => avatarInputRef.current?.click()}
+                      disabled={isUploadingAvatar}
+                      className="absolute -bottom-1 -right-1 rounded-full border border-slate-300 bg-white px-1 text-[10px] text-slate-700"
+                    >
+                      {isUploadingAvatar ? '...' : '+'}
+                    </button>
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarUpload}
+                      className="hidden"
+                    />
+                  </div>
                   <span className="relative hidden sm:inline-flex">
                     <MessageSquare size={16} />
                     {unreadInboxCount > 0 ? (
@@ -2176,6 +2312,43 @@ function App() {
               </div>
             </form>
           </motion.div>
+          ) : null}
+
+          {activeUtilityPanel === 'drivers' && user?.is_admin ? (
+            <motion.div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" {...cardMotion}>
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-semibold text-slate-900">All Drivers</h2>
+                <span className="text-sm text-slate-500">{adminDriverDirectory.length} total</span>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {adminDriverDirectory.map((driver) => (
+                  <article key={`admin-driver-${driver.userId}`} className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{driver.name}</p>
+                        <p className="mt-1 text-xs text-slate-600">{driver.email}</p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Route: {driver.primaryRoute} • Seats: {driver.seats}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Total rides: {driver.totalRides} • Active rides: {driver.activeRides}
+                        </p>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getApplicationStatusClass(driver.status)}`}>
+                        {driver.status}
+                      </span>
+                    </div>
+                  </article>
+                ))}
+
+                {adminDriverDirectory.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
+                    No drivers found yet.
+                  </div>
+                ) : null}
+              </div>
+            </motion.div>
           ) : null}
           </div>
         </div>
