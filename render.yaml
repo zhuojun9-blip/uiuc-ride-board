@@ -15,12 +15,3 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: SECRET_KEY
-        generateValue: true
-      - key: ADMIN_EMAILS
-        sync: false
-      - key: FRONTEND_URL
-        sync: false
