@@ -30,6 +30,7 @@ class Driver(Base):
     vehicle = Column(String, nullable=False)
     available_seats = Column(Integer, nullable=False)
     departure_time = Column(String, nullable=False)
+    price_per_seat = Column(Float, nullable=False, default=0.0)
     pickup_location = Column(String, nullable=False)
     notes = Column(Text)
     is_active = Column(Boolean, default=True)

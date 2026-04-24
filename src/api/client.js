@@ -79,6 +79,10 @@ export const driverAPI = {
     apiCall(`/drivers/${id}`, {
       method: 'DELETE',
     }),
+
+  getAdminOverview: () => apiCall('/drivers/admin/overview'),
+
+  getAdminDriverHistory: (driverUserId) => apiCall(`/drivers/admin/history/${driverUserId}`),
 }
 
 // Rider request endpoints

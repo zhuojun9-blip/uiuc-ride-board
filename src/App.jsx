@@ -225,6 +225,7 @@ function App() {
     route: 'UIUC → ORD',
     vehicle: '',
     seats: '2',
+    pricePerSeat: '0',
     departure: '',
     pickupLocation: '',
     notes: '',
@@ -240,6 +241,7 @@ function App() {
     route: 'UIUC → ORD',
     vehicle: '',
     seats: '1',
+    pricePerSeat: '0',
     departure: '',
     pickupLocation: '',
     notes: '',
@@ -272,6 +274,9 @@ function App() {
   const [isUpdatingApplicationId, setIsUpdatingApplicationId] = useState(null)
   const [myApplications, setMyApplications] = useState([])
   const [isLoadingMyApplications, setIsLoadingMyApplications] = useState(false)
+  const [adminDriverOverview, setAdminDriverOverview] = useState([])
+  const [isLoadingAdminDriverOverview, setIsLoadingAdminDriverOverview] = useState(false)
+  const [expandedDriverHistoryId, setExpandedDriverHistoryId] = useState(null)
   const { addNotification } = useNotification()
 
   const routes = [
@@ -365,6 +370,7 @@ function App() {
           name: driver.user_name || `Driver #${driver.id}`,
           route: driver.route,
           seats: driver.available_seats,
+          pricePerSeat: driver.price_per_seat || 0,
           departure: driver.departure_time,
           vehicle: driver.vehicle,
           pickupLocation: driver.pickup_location || '',
@@ -465,6 +471,36 @@ function App() {
   useEffect(() => {
     loadMyApplications()
   }, [loadMyApplications])
+
+  const loadAdminDriverOverview = useCallback(
+    async ({ showError = false } = {}) => {
+      if (!token || !user?.is_admin) {
+        setAdminDriverOverview([])
+        return
+      }
+
+      setIsLoadingAdminDriverOverview(true)
+      try {
+        const overview = await driverAPI.getAdminOverview()
+        setAdminDriverOverview(overview)
+      } catch (error) {
+        if (showError) {
+          addNotification({
+            type: 'error',
+            title: 'Could not load driver history',
+            message: error.message || 'Please try again.',
+          })
+        }
+      } finally {
+        setIsLoadingAdminDriverOverview(false)
+      }
+    },
+    [addNotification, token, user?.is_admin]
+  )
+
+  useEffect(() => {
+    loadAdminDriverOverview()
+  }, [loadAdminDriverOverview])
 
   // Set up WebSocket connection for real-time updates
   const handleWebSocketMessage = (message) => {
@@ -681,6 +717,7 @@ function App() {
     if (!requireAuth()) return
 
     const seats = Number(driverForm.seats)
+    const pricePerSeat = Number(driverForm.pricePerSeat)
     if (!driverForm.vehicle.trim() || !driverForm.departure.trim() || !driverForm.pickupLocation.trim()) {
       addNotification({
         type: 'error',
@@ -697,6 +734,14 @@ function App() {
       })
       return
     }
+    if (Number.isNaN(pricePerSeat) || pricePerSeat < 0) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid cost',
+        message: 'Cost per seat must be 0 or higher.',
+      })
+      return
+    }
 
     try {
       setIsSubmittingDriver(true)
@@ -705,6 +750,7 @@ function App() {
         vehicle: driverForm.vehicle,
         available_seats: seats,
         departure_time: driverForm.departure,
+        price_per_seat: pricePerSeat,
         pickup_location: driverForm.pickupLocation,
         notes: driverForm.notes,
       })
@@ -715,6 +761,7 @@ function App() {
         name: created.user_name || user?.name || `Driver #${created.id}`,
         route: created.route,
         seats: created.available_seats,
+        pricePerSeat: created.price_per_seat || 0,
         departure: created.departure_time,
         vehicle: created.vehicle,
         pickupLocation: created.pickup_location || '',
@@ -727,10 +774,12 @@ function App() {
         route: 'UIUC → ORD',
         vehicle: '',
         seats: '2',
+        pricePerSeat: '0',
         departure: '',
         pickupLocation: '',
         notes: '',
       })
+      loadAdminDriverOverview()
       addNotification({
         type: 'success',
         title: 'Listing posted',
@@ -818,6 +867,7 @@ function App() {
     try {
       await driverAPI.deleteListing(driver.id)
       setDriverListings((prev) => prev.filter((item) => item.id !== driver.id))
+      loadAdminDriverOverview()
       if (editingDriverId === driver.id) {
         setEditingDriverId(null)
       }
@@ -844,6 +894,7 @@ function App() {
       route: driver.route,
       vehicle: driver.vehicle,
       seats: String(driver.seats),
+      pricePerSeat: String(driver.pricePerSeat || 0),
       departure: driver.departure,
       pickupLocation: driver.pickupLocation || '',
       notes: driver.notesRaw || '',
@@ -858,6 +909,7 @@ function App() {
     if (!requireAuth()) return
 
     const seats = Number(editingDriverForm.seats)
+    const pricePerSeat = Number(editingDriverForm.pricePerSeat)
     if (!editingDriverForm.route.trim() || !editingDriverForm.vehicle.trim()) {
       addNotification({
         type: 'error',
@@ -871,6 +923,14 @@ function App() {
         type: 'error',
         title: 'Invalid seats',
         message: 'Available seats must be between 1 and 6.',
+      })
+      return
+    }
+    if (Number.isNaN(pricePerSeat) || pricePerSeat < 0) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid cost',
+        message: 'Cost per seat must be 0 or higher.',
       })
       return
     }
@@ -890,6 +950,7 @@ function App() {
         vehicle: editingDriverForm.vehicle,
         available_seats: seats,
         departure_time: editingDriverForm.departure,
+        price_per_seat: pricePerSeat,
         pickup_location: editingDriverForm.pickupLocation,
         notes: editingDriverForm.notes,
       })
@@ -902,6 +963,7 @@ function App() {
                 route: updated.route,
                 vehicle: updated.vehicle,
                 seats: updated.available_seats,
+                pricePerSeat: updated.price_per_seat || 0,
                 departure: updated.departure_time,
                 pickupLocation: updated.pickup_location || '',
                 notesRaw: updated.notes || '',
@@ -911,6 +973,7 @@ function App() {
         )
       )
       setEditingDriverId(null)
+      loadAdminDriverOverview()
 
       addNotification({
         type: 'success',
@@ -1335,6 +1398,20 @@ function App() {
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
               />
             </label>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Cost per seat ($)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={driverForm.pricePerSeat}
+                onChange={(event) =>
+                  setDriverForm((prev) => ({ ...prev, pricePerSeat: event.target.value }))
+                }
+                placeholder="25"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
             <label className="md:col-span-2">
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Pickup location</span>
               <input
@@ -1411,6 +1488,9 @@ function App() {
                   <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
                     {driver.seats} seat{driver.seats === 1 ? '' : 's'}
                   </span>
+                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                      ${Number(driver.pricePerSeat || 0).toFixed(2)}/seat
+                    </span>
                 </div>
               </div>
 
@@ -1460,6 +1540,17 @@ function App() {
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
                     />
                     <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editingDriverForm.pricePerSeat}
+                      onChange={(event) =>
+                        setEditingDriverForm((prev) => ({ ...prev, pricePerSeat: event.target.value }))
+                      }
+                      placeholder="Cost per seat"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                    <input
                       type="text"
                       value={editingDriverForm.pickupLocation}
                       onChange={(event) =>
@@ -1485,6 +1576,9 @@ function App() {
                     </p>
                     <p className="flex items-center gap-2">
                       <Car size={15} /> Vehicle: {driver.vehicle}
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <span className="font-medium">Cost:</span> ${Number(driver.pricePerSeat || 0).toFixed(2)} per seat
                     </p>
                     <p>{driver.note}</p>
                   </>
@@ -1554,6 +1648,85 @@ function App() {
           <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
             No listings matched your search. Try a different route or keyword.
           </div>
+        ) : null}
+
+        {user?.is_admin ? (
+          <motion.div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" {...cardMotion}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-slate-900">Admin Ride Cost & Driver History</h3>
+              <button
+                onClick={() => loadAdminDriverOverview({ showError: true })}
+                className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {isLoadingAdminDriverOverview ? (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                Loading driver history...
+              </div>
+            ) : null}
+
+            <div className="mt-4 space-y-3">
+              {adminDriverOverview.map((driverHistory) => (
+                <article key={driverHistory.driver_user_id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-900">{driverHistory.driver_name}</h4>
+                      <p className="mt-1 text-xs text-slate-600">{driverHistory.driver_email}</p>
+                      <p className="mt-2 text-xs text-slate-600">
+                        {driverHistory.total_rides} ride{driverHistory.total_rides === 1 ? '' : 's'} •
+                        {' '}Active: {driverHistory.active_rides} • Inactive: {driverHistory.inactive_rides}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-slate-600">Total estimated cost</p>
+                      <p className="text-sm font-semibold text-slate-900">${Number(driverHistory.total_estimated_cost || 0).toFixed(2)}</p>
+                      <p className="mt-1 text-xs text-slate-600">Avg ${Number(driverHistory.average_price_per_seat || 0).toFixed(2)}/seat</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <button
+                      onClick={() =>
+                        setExpandedDriverHistoryId((prev) =>
+                          prev === driverHistory.driver_user_id ? null : driverHistory.driver_user_id
+                        )
+                      }
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      {expandedDriverHistoryId === driverHistory.driver_user_id ? 'Hide history' : 'View history'}
+                    </button>
+                  </div>
+
+                  {expandedDriverHistoryId === driverHistory.driver_user_id ? (
+                    <div className="mt-3 space-y-2">
+                      {driverHistory.rides.map((ride) => (
+                        <div key={ride.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="font-medium text-slate-900">{ride.route} • {ride.departure_time}</p>
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ride.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                              {ride.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-600">Vehicle: {ride.vehicle} • Seats: {ride.available_seats}</p>
+                          <p className="mt-1 text-xs text-slate-600">Cost: ${Number(ride.price_per_seat || 0).toFixed(2)}/seat • Ride total: ${Number(ride.estimated_total_cost || 0).toFixed(2)}</p>
+                          <p className="mt-1 text-xs text-slate-500">Created: {formatMessageTime(ride.created_at)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+
+              {!isLoadingAdminDriverOverview && adminDriverOverview.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
+                  No driver history is available yet.
+                </div>
+              ) : null}
+            </div>
+          </motion.div>
         ) : null}
       </section>
 

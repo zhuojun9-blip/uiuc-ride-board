@@ -19,6 +19,9 @@ def initialize_database() -> bool:
                 connection.execute(
                     text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE")
                 )
+                connection.execute(
+                    text("ALTER TABLE drivers ADD COLUMN IF NOT EXISTS price_per_seat DOUBLE PRECISION DEFAULT 0")
+                )
         return True
     except SQLAlchemyError as error:
         logger.exception(
