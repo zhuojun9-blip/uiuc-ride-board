@@ -304,6 +304,10 @@ function App() {
 
   const [selectedRoute, setSelectedRoute] = useState('All routes')
   const [searchTerm, setSearchTerm] = useState('')
+  const [activeUtilityPanel, setActiveUtilityPanel] = useState(null)
+  const [showAllDriverListings, setShowAllDriverListings] = useState(false)
+  const [adminHistorySearchTerm, setAdminHistorySearchTerm] = useState('')
+  const [showAllAdminDriverHistory, setShowAllAdminDriverHistory] = useState(false)
 
   // Load user and token from localStorage on mount
   useEffect(() => {
@@ -1431,6 +1435,28 @@ function App() {
     })
   }, [driverListings, searchTerm, selectedRoute])
 
+  const visibleDrivers = useMemo(() => {
+    if (showAllDriverListings) return filteredDrivers
+    return filteredDrivers.slice(0, 6)
+  }, [filteredDrivers, showAllDriverListings])
+
+  const filteredAdminDriverOverview = useMemo(() => {
+    const keyword = adminHistorySearchTerm.trim().toLowerCase()
+    if (!keyword) return adminDriverOverview
+
+    return adminDriverOverview.filter((history) =>
+      [history.driver_name, history.driver_email]
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword)
+    )
+  }, [adminDriverOverview, adminHistorySearchTerm])
+
+  const visibleAdminDriverOverview = useMemo(() => {
+    if (showAllAdminDriverHistory) return filteredAdminDriverOverview
+    return filteredAdminDriverOverview.slice(0, 5)
+  }, [filteredAdminDriverOverview, showAllAdminDriverHistory])
+
   const cardMotion = {
     initial: { opacity: 0, y: 12 },
     whileInView: { opacity: 1, y: 0 },
@@ -1665,8 +1691,59 @@ function App() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
-        <div className="mb-6 grid gap-5 lg:grid-cols-3">
-          <motion.div
+        <motion.div
+          className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+          {...cardMotion}
+        >
+          <h3 className="text-sm font-semibold text-slate-900">Quick Access</h3>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <button
+              onClick={() =>
+                setActiveUtilityPanel((prev) => (prev === 'messages' ? null : 'messages'))
+              }
+              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition ${
+                activeUtilityPanel === 'messages'
+                  ? 'border-blue-300 bg-blue-50 text-blue-700'
+                  : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <MessageSquare size={16} />
+              Message Box
+            </button>
+
+            <button
+              onClick={() =>
+                setActiveUtilityPanel((prev) => (prev === 'application' ? null : 'application'))
+              }
+              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition ${
+                activeUtilityPanel === 'application'
+                  ? 'border-blue-300 bg-blue-50 text-blue-700'
+                  : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <User size={16} />
+              Driver Application
+            </button>
+
+            <button
+              onClick={() =>
+                setActiveUtilityPanel((prev) => (prev === 'listing' ? null : 'listing'))
+              }
+              className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition ${
+                activeUtilityPanel === 'listing'
+                  ? 'border-blue-300 bg-blue-50 text-blue-700'
+                  : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Car size={16} />
+              Post a Driver Listing
+            </button>
+          </div>
+        </motion.div>
+
+        <div className="mb-6">
+          {activeUtilityPanel === 'listing' ? (
+            <motion.div
             className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
             {...cardMotion}
           >
@@ -1798,8 +1875,9 @@ function App() {
             </div>
           </form>
           </motion.div>
+          ) : null}
 
-          {user ? (
+          {activeUtilityPanel === 'messages' && user ? (
             <motion.div
               className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
               {...cardMotion}
@@ -1975,6 +2053,7 @@ function App() {
             </motion.div>
           ) : null}
 
+          {activeUtilityPanel === 'application' ? (
           <motion.div
             className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
             {...cardMotion}
@@ -2058,12 +2137,13 @@ function App() {
               </div>
             </form>
           </motion.div>
+          ) : null}
         </div>
 
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-2xl font-semibold text-slate-900">Driver Listings</h2>
           <span className="text-sm text-slate-500">
-            {filteredDrivers.length} result{filteredDrivers.length === 1 ? '' : 's'}
+            {visibleDrivers.length} / {filteredDrivers.length} result{filteredDrivers.length === 1 ? '' : 's'}
           </span>
         </div>
 
@@ -2074,7 +2154,7 @@ function App() {
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {filteredDrivers.map((driver) => (
+          {visibleDrivers.map((driver) => (
             <motion.article
               key={driver.id}
               className={`rounded-2xl border bg-white p-5 shadow-sm transition ${
@@ -2376,6 +2456,17 @@ function App() {
           ))}
         </div>
 
+        {filteredDrivers.length > 6 ? (
+          <div className="mt-4">
+            <button
+              onClick={() => setShowAllDriverListings((prev) => !prev)}
+              className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              {showAllDriverListings ? 'Show fewer listings' : `Show more listings (${filteredDrivers.length - visibleDrivers.length} more)`}
+            </button>
+          </div>
+        ) : null}
+
         {filteredDrivers.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
             No listings matched your search. Try a different route or keyword.
@@ -2393,6 +2484,16 @@ function App() {
                 >
                   Refresh
                 </button>
+              </div>
+
+              <div className="mt-3">
+                <input
+                  type="text"
+                  value={adminHistorySearchTerm}
+                  onChange={(event) => setAdminHistorySearchTerm(event.target.value)}
+                  placeholder="Search driver history by name or email"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                />
               </div>
 
               {isLoadingAdminDriverOverview ? (
@@ -2439,7 +2540,7 @@ function App() {
                   </div>
                 </div>
 
-                {adminDriverOverview.map((driverHistory) => (
+                {visibleAdminDriverOverview.map((driverHistory) => (
                   <article key={driverHistory.driver_user_id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
@@ -2499,7 +2600,20 @@ function App() {
                   </article>
                 ))}
 
-                {!isLoadingAdminDriverOverview && adminDriverOverview.length === 0 ? (
+                {filteredAdminDriverOverview.length > 5 ? (
+                  <div>
+                    <button
+                      onClick={() => setShowAllAdminDriverHistory((prev) => !prev)}
+                      className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      {showAllAdminDriverHistory
+                        ? 'Show fewer history entries'
+                        : `Show more history entries (${filteredAdminDriverOverview.length - visibleAdminDriverOverview.length} more)`}
+                    </button>
+                  </div>
+                ) : null}
+
+                {!isLoadingAdminDriverOverview && filteredAdminDriverOverview.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
                     No driver history is available yet.
                   </div>
