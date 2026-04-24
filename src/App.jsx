@@ -546,6 +546,19 @@ function App() {
     [inboxMessages]
   )
 
+  const adminRideLedger = useMemo(() => {
+    return adminDriverOverview
+      .flatMap((driverHistory) =>
+        (driverHistory.rides || []).map((ride) => ({
+          ...ride,
+          driverUserId: driverHistory.driver_user_id,
+          driverName: driverHistory.driver_name,
+          driverEmail: driverHistory.driver_email,
+        }))
+      )
+      .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
+  }, [adminDriverOverview])
+
   const handleLogin = (userData, accessToken) => {
     setUser(userData)
     setToken(accessToken)
@@ -1714,6 +1727,43 @@ function App() {
             ) : null}
 
             <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <h4 className="text-sm font-semibold text-slate-900">Ride Cost Ledger</h4>
+                <p className="mt-1 text-xs text-slate-600">
+                  Complete list of rides and estimated costs.
+                </p>
+
+                <div className="mt-3 space-y-2">
+                  {adminRideLedger.map((ride) => (
+                    <div
+                      key={`ledger-${ride.id}`}
+                      className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-sm text-slate-700"
+                    >
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="font-medium text-slate-900">
+                          {ride.route} • {ride.departure_time}
+                        </p>
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                          ${Number(ride.estimated_total_cost || 0).toFixed(2)} total
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Driver: {ride.driverName} ({ride.driverEmail})
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Seats: {ride.available_seats} • ${Number(ride.price_per_seat || 0).toFixed(2)}/seat • Created: {formatMessageTime(ride.created_at)}
+                      </p>
+                    </div>
+                  ))}
+
+                  {!isLoadingAdminDriverOverview && adminRideLedger.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">
+                      No rides available in the cost ledger yet.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
               {adminDriverOverview.map((driverHistory) => (
                 <article key={driverHistory.driver_user_id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
