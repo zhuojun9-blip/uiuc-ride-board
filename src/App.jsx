@@ -272,11 +272,13 @@ function App() {
   const [adminApplications, setAdminApplications] = useState([])
   const [isLoadingAdminApplications, setIsLoadingAdminApplications] = useState(false)
   const [isUpdatingApplicationId, setIsUpdatingApplicationId] = useState(null)
+  const [isDeletingApplicationId, setIsDeletingApplicationId] = useState(null)
   const [myApplications, setMyApplications] = useState([])
   const [isLoadingMyApplications, setIsLoadingMyApplications] = useState(false)
   const [adminDriverOverview, setAdminDriverOverview] = useState([])
   const [isLoadingAdminDriverOverview, setIsLoadingAdminDriverOverview] = useState(false)
   const [expandedDriverHistoryId, setExpandedDriverHistoryId] = useState(null)
+  const [isDeletingAdminRideId, setIsDeletingAdminRideId] = useState(null)
   const { addNotification } = useNotification()
 
   const routes = [
@@ -709,6 +711,49 @@ function App() {
       })
     } finally {
       setIsUpdatingApplicationId(null)
+    }
+  }
+
+  const handleDeleteApplication = async (applicationId) => {
+    try {
+      setIsDeletingApplicationId(applicationId)
+      await applicationAPI.deleteApplication(applicationId)
+      setAdminApplications((prev) => prev.filter((application) => application.id !== applicationId))
+      addNotification({
+        type: 'success',
+        title: 'Application deleted',
+        message: 'The application was removed successfully.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Delete failed',
+        message: error.message || 'Could not delete application.',
+      })
+    } finally {
+      setIsDeletingApplicationId(null)
+    }
+  }
+
+  const handleAdminDeleteRide = async (rideId) => {
+    try {
+      setIsDeletingAdminRideId(rideId)
+      await driverAPI.deleteListing(rideId)
+      setDriverListings((prev) => prev.filter((driver) => driver.id !== rideId))
+      await loadAdminDriverOverview()
+      addNotification({
+        type: 'success',
+        title: 'Ride deleted',
+        message: 'The ride listing was removed from driver history.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Delete failed',
+        message: error.message || 'Could not delete ride listing.',
+      })
+    } finally {
+      setIsDeletingAdminRideId(null)
     }
   }
 
@@ -1713,6 +1758,15 @@ function App() {
                           <p className="mt-1 text-xs text-slate-600">Vehicle: {ride.vehicle} • Seats: {ride.available_seats}</p>
                           <p className="mt-1 text-xs text-slate-600">Cost: ${Number(ride.price_per_seat || 0).toFixed(2)}/seat • Ride total: ${Number(ride.estimated_total_cost || 0).toFixed(2)}</p>
                           <p className="mt-1 text-xs text-slate-500">Created: {formatMessageTime(ride.created_at)}</p>
+                          <div className="mt-2">
+                            <button
+                              onClick={() => handleAdminDeleteRide(ride.id)}
+                              disabled={isDeletingAdminRideId === ride.id}
+                              className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                            >
+                              {isDeletingAdminRideId === ride.id ? 'Deleting...' : 'Delete ride'}
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2257,6 +2311,13 @@ function App() {
                           className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
                         >
                           Reject
+                        </button>
+                        <button
+                          onClick={() => handleDeleteApplication(application.id)}
+                          disabled={isDeletingApplicationId === application.id}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60"
+                        >
+                          {isDeletingApplicationId === application.id ? 'Deleting...' : 'Delete'}
                         </button>
                       </div>
                     </div>

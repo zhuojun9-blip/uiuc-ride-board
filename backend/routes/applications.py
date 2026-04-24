@@ -113,7 +113,7 @@ async def delete_application(
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
     
-    if app.user_id != current_user.id:
+    if app.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     db.delete(app)
