@@ -1,16 +1,33 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+import logging
 from database import Base, engine, settings
 from routes import auth, drivers, requests, applications, messages, websocket
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+logger = logging.getLogger(__name__)
 
-with engine.begin() as connection:
-    connection.execute(
-        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE")
-    )
+
+def initialize_database() -> None:
+    try:
+        Base.metadata.create_all(bind=engine)
+
+        if engine.dialect.name == "postgresql":
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE")
+                )
+    except SQLAlchemyError as error:
+        logger.exception(
+            "Database initialization failed. Check DATABASE_URL and database availability."
+        )
+        raise RuntimeError(
+            "Database initialization failed. Set DATABASE_URL to a reachable PostgreSQL database."
+        ) from error
+
+
+initialize_database()
 
 app = FastAPI(
     title="UIUC Ride Board API",
