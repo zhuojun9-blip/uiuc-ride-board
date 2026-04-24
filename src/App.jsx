@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import {
   Bus,
@@ -12,6 +12,7 @@ import {
   Search,
   ShieldCheck,
   User,
+  MessageSquare,
 } from 'lucide-react'
 import { useNotification } from './providers/NotificationProvider'
 import { applicationAPI, authAPI, driverAPI, messageAPI, riderAPI } from './api/client'
@@ -319,6 +320,11 @@ function App() {
     availableSeats: '2',
     notes: '',
   })
+  const [inboxMessages, setInboxMessages] = useState([])
+  const [sentMessages, setSentMessages] = useState([])
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false)
+  const [messageTab, setMessageTab] = useState('inbox')
+  const [isMarkingReadId, setIsMarkingReadId] = useState(null)
   const { addNotification } = useNotification()
 
   const routes = [
@@ -356,6 +362,42 @@ function App() {
       }))
     }
   }, [user])
+
+  const loadMessages = useCallback(
+    async ({ showError = false } = {}) => {
+      if (!token) {
+        setInboxMessages([])
+        setSentMessages([])
+        return
+      }
+
+      setIsLoadingMessages(true)
+      try {
+        const [inbox, sent] = await Promise.all([
+          messageAPI.getInbox(),
+          messageAPI.getSent(),
+        ])
+
+        setInboxMessages(inbox)
+        setSentMessages(sent)
+      } catch (error) {
+        if (showError) {
+          addNotification({
+            type: 'error',
+            title: 'Could not load messages',
+            message: error.message || 'Please try again.',
+          })
+        }
+      } finally {
+        setIsLoadingMessages(false)
+      }
+    },
+    [addNotification, token]
+  )
+
+  useEffect(() => {
+    loadMessages()
+  }, [loadMessages])
 
   useEffect(() => {
     let isMounted = true
@@ -421,11 +463,16 @@ function App() {
   const handleWebSocketMessage = (message) => {
     // Handle any direct messages from backend
     console.log('WebSocket message:', message)
+
+    if (message.type === 'message_sent' || message.type === 'contact_sent' || message.type === 'offer_sent') {
+      loadMessages()
+    }
   }
 
   const handleWebSocketNotification = (notification) => {
     // Handle notifications
     if (notification.type === 'new_message') {
+      loadMessages()
       addNotification({
         type: 'info',
         title: 'New Message',
@@ -456,6 +503,11 @@ function App() {
     handleWebSocketNotification
   )
 
+  const unreadInboxCount = useMemo(
+    () => inboxMessages.filter((message) => !message.is_read).length,
+    [inboxMessages]
+  )
+
   const handleLogin = (userData, accessToken) => {
     setUser(userData)
     setToken(accessToken)
@@ -467,6 +519,8 @@ function App() {
     setToken(null)
     localStorage.removeItem('rideboard_user')
     localStorage.removeItem('rideboard_token')
+    setInboxMessages([])
+    setSentMessages([])
     addNotification({
       type: 'info',
       title: 'Logged Out',
@@ -504,6 +558,7 @@ function App() {
         title: 'Message sent',
         message: 'Your interest was sent to the driver.',
       })
+      loadMessages()
     } catch (error) {
       addNotification({
         type: 'error',
@@ -535,6 +590,7 @@ function App() {
         title: 'Offer sent',
         message: 'Your ride offer was sent to the requester.',
       })
+      loadMessages()
     } catch (error) {
       addNotification({
         type: 'error',
@@ -972,6 +1028,38 @@ function App() {
     viewport: { once: true, amount: 0.15 },
   }
 
+  const formatMessageTime = (value) => {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return 'Unknown time'
+
+    return date.toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  }
+
+  const handleMarkMessageRead = async (messageId) => {
+    try {
+      setIsMarkingReadId(messageId)
+      const updated = await messageAPI.markAsRead(messageId)
+      setInboxMessages((prev) =>
+        prev.map((message) =>
+          message.id === messageId ? { ...message, is_read: updated.is_read } : message
+        )
+      )
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not mark message',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsMarkingReadId(null)
+    }
+  }
+
   return (
     <main className="min-h-screen">
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white shadow-sm">
@@ -1000,6 +1088,14 @@ function App() {
             {user ? (
               <>
                 <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="relative hidden sm:inline-flex">
+                    <MessageSquare size={16} />
+                    {unreadInboxCount > 0 ? (
+                      <span className="absolute -right-2 -top-2 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        {unreadInboxCount}
+                      </span>
+                    ) : null}
+                  </span>
                   <User size={16} />
                   <span className="hidden sm:inline font-medium">{user.name}</span>
                   {user.is_admin ? (
@@ -1593,6 +1689,106 @@ function App() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
+        {user ? (
+          <motion.div
+            className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+            {...cardMotion}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-slate-800">
+                  <MessageSquare size={18} />
+                  <h2 className="text-2xl font-semibold text-slate-900">Messages</h2>
+                </div>
+                <p className="mt-1 text-sm text-slate-600">
+                  View ride inquiries and offers you have sent or received.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setMessageTab('inbox')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                    messageTab === 'inbox'
+                      ? 'bg-slate-900 text-white'
+                      : 'border border-slate-300 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  Inbox{unreadInboxCount > 0 ? ` (${unreadInboxCount})` : ''}
+                </button>
+                <button
+                  onClick={() => setMessageTab('sent')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                    messageTab === 'sent'
+                      ? 'bg-slate-900 text-white'
+                      : 'border border-slate-300 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  Sent
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {isLoadingMessages ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  Loading messages...
+                </div>
+              ) : null}
+
+              {(messageTab === 'inbox' ? inboxMessages : sentMessages).map((message) => {
+                const isInboxView = messageTab === 'inbox'
+
+                return (
+                  <article
+                    key={message.id}
+                    className={`rounded-xl border p-4 ${
+                      isInboxView && !message.is_read
+                        ? 'border-blue-200 bg-blue-50/40'
+                        : 'border-slate-200 bg-slate-50/50'
+                    }`}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold text-slate-900">{message.subject}</h3>
+                          {isInboxView && !message.is_read ? (
+                            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                              New
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {isInboxView
+                            ? `From user #${message.sender_id}`
+                            : `To user #${message.recipient_id}`} • {formatMessageTime(message.created_at)}
+                        </p>
+                      </div>
+                      {isInboxView && !message.is_read ? (
+                        <button
+                          onClick={() => handleMarkMessageRead(message.id)}
+                          disabled={isMarkingReadId === message.id}
+                          className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60"
+                        >
+                          {isMarkingReadId === message.id ? 'Saving...' : 'Mark as read'}
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-slate-700">{message.body}</p>
+                  </article>
+                )
+              })}
+
+              {!isLoadingMessages && (messageTab === 'inbox' ? inboxMessages : sentMessages).length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
+                  {messageTab === 'inbox'
+                    ? 'No messages yet. When riders or drivers contact you, they will appear here.'
+                    : 'You have not sent any messages yet.'}
+                </div>
+              ) : null}
+            </div>
+          </motion.div>
+        ) : null}
+
         <motion.div
           className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
           {...cardMotion}
@@ -1695,7 +1891,7 @@ function App() {
               <CheckCircle2 className="mt-0.5" size={15} /> Meet at public pickup points and share itinerary with friends.
             </li>
             <li className="flex items-start gap-2">
-              <CheckCircle2 className="mt-0.5" size={15} /> Use in-app messaging (future phase) before sharing personal details.
+              <CheckCircle2 className="mt-0.5" size={15} /> Use in-app messaging before sharing personal details.
             </li>
           </ul>
         </motion.article>
