@@ -13,45 +13,153 @@ import {
   ShieldCheck,
   User,
 } from 'lucide-react'
+import { useNotification } from './providers/NotificationProvider'
+import { applicationAPI, authAPI, driverAPI, messageAPI, riderAPI } from './api/client'
+import { useWebSocket } from './hooks/useWebSocket'
+
+const sampleDriverListings = [
+  {
+    id: 1,
+    name: 'Aarav S.',
+    route: 'UIUC → ORD',
+    seats: 3,
+    departure: 'Fri, 4:30 PM',
+    vehicle: 'Toyota Camry',
+    note: 'Usually leaves from Green Street near Illini Union.',
+  },
+  {
+    id: 2,
+    name: 'Maya L.',
+    route: 'ORD → UIUC',
+    seats: 2,
+    departure: 'Sun, 7:00 PM',
+    vehicle: 'Honda CR-V',
+    note: 'Returning after weekend flight arrivals.',
+  },
+  {
+    id: 3,
+    name: 'Daniel K.',
+    route: 'UIUC → Midway',
+    seats: 1,
+    departure: 'Sat, 9:15 AM',
+    vehicle: 'Nissan Altima',
+    note: 'Can share luggage space for one checked bag.',
+  },
+  {
+    id: 4,
+    name: 'Priya R.',
+    route: 'UIUC → Downtown Chicago',
+    seats: 2,
+    departure: 'Fri, 5:45 PM',
+    vehicle: 'Mazda CX-5',
+    note: 'Drop-off near Union Station and West Loop.',
+  },
+]
+
+const sampleRiderRequests = [
+  {
+    id: 1,
+    route: 'UIUC → ORD',
+    rider: 'Graduate student',
+    timing: 'This Friday before 6 PM',
+    details: 'One rider + one carry-on. Flexible pickup near campus.',
+  },
+  {
+    id: 2,
+    route: 'ORD → UIUC',
+    rider: 'Undergrad student',
+    timing: 'Sunday evening',
+    details: 'Lands at 5:40 PM, looking for shared ride to Champaign.',
+  },
+  {
+    id: 3,
+    route: 'UIUC → Downtown Chicago',
+    rider: 'Visiting scholar',
+    timing: 'Next Wednesday morning',
+    details: 'Needs drop-off near River North, light luggage only.',
+  },
+]
 
 function LoginModal({ isOpen, onClose, onLogin }) {
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const { addNotification } = useNotification()
 
   const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setLoading(true)
 
-    if (!email.trim() || !password.trim()) {
-      setError('Email and password are required.')
-      return
+    try {
+      if (!email.trim() || !password.trim()) {
+        throw new Error('Email and password are required.')
+      }
+
+      if (!validateEmail(email)) {
+        throw new Error('Please enter a valid email address.')
+      }
+
+      if (password.length < 6) {
+        throw new Error('Password must be at least 6 characters.')
+      }
+
+      if (isSignUp) {
+        if (!name.trim()) {
+          throw new Error('Name is required.')
+        }
+        if (password !== confirmPassword) {
+          throw new Error('Passwords do not match.')
+        }
+
+        // Sign up
+        const response = await authAPI.register(email, password, name)
+        localStorage.setItem('rideboard_token', response.access_token)
+        localStorage.setItem('rideboard_user', JSON.stringify(response.user))
+        
+        addNotification({
+          type: 'success',
+          title: 'Account Created',
+          message: `Welcome, ${response.user.name}!`,
+        })
+        
+        onLogin(response.user, response.access_token)
+      } else {
+        // Log in
+        const response = await authAPI.login(email, password)
+        localStorage.setItem('rideboard_token', response.access_token)
+        localStorage.setItem('rideboard_user', JSON.stringify(response.user))
+        
+        addNotification({
+          type: 'success',
+          title: 'Logged In',
+          message: `Welcome back, ${response.user.name}!`,
+        })
+        
+        onLogin(response.user, response.access_token)
+      }
+
+      setEmail('')
+      setName('')
+      setPassword('')
+      setConfirmPassword('')
+    } catch (err) {
+      const errorMsg = err.message || 'An error occurred'
+      setError(errorMsg)
+      addNotification({
+        type: 'error',
+        title: 'Auth Error',
+        message: errorMsg,
+      })
+    } finally {
+      setLoading(false)
     }
-
-    if (!validateEmail(email)) {
-      setError('Please enter a valid email address.')
-      return
-    }
-
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.')
-      return
-    }
-
-    if (isSignUp && password !== confirmPassword) {
-      setError('Passwords do not match.')
-      return
-    }
-
-    // Call parent onLogin with user data
-    onLogin({ email, name: email.split('@')[0] })
-    setEmail('')
-    setPassword('')
-    setConfirmPassword('')
   }
 
   if (!isOpen) return null
@@ -87,6 +195,19 @@ function LoginModal({ isOpen, onClose, onLogin }) {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {isSignUp && (
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Full Name</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name"
+                className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+          )}
+
           <label>
             <span className="mb-1.5 block text-sm font-medium text-slate-700">Email</span>
             <input
@@ -124,9 +245,10 @@ function LoginModal({ isOpen, onClose, onLogin }) {
 
           <button
             type="submit"
-            className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700"
+            disabled={loading}
+            className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
           >
-            {isSignUp ? 'Create Account' : 'Sign In'}
+            {loading ? 'Loading...' : isSignUp ? 'Create Account' : 'Sign In'}
           </button>
         </form>
 
@@ -136,6 +258,7 @@ function LoginModal({ isOpen, onClose, onLogin }) {
             setIsSignUp(!isSignUp)
             setError('')
             setEmail('')
+            setName('')
             setPassword('')
             setConfirmPassword('')
           }}
@@ -143,10 +266,6 @@ function LoginModal({ isOpen, onClose, onLogin }) {
         >
           {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Create one"}
         </button>
-
-        <p className="mt-4 text-center text-xs text-slate-500">
-          This is a demo. Use any email and password (6+ chars).
-        </p>
       </motion.div>
     </div>
   )
@@ -154,7 +273,54 @@ function LoginModal({ isOpen, onClose, onLogin }) {
 
 function App() {
   const [user, setUser] = useState(null)
+  const [token, setToken] = useState(null)
   const [showLoginModal, setShowLoginModal] = useState(false)
+  const [isLoadingMarketplace, setIsLoadingMarketplace] = useState(true)
+  const [driverListings, setDriverListings] = useState([])
+  const [riderRequests, setRiderRequests] = useState([])
+  const [isSubmittingDriver, setIsSubmittingDriver] = useState(false)
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false)
+  const [driverForm, setDriverForm] = useState({
+    route: 'UIUC → ORD',
+    vehicle: '',
+    seats: '2',
+    departure: '',
+    pickupLocation: '',
+    notes: '',
+  })
+  const [requestForm, setRequestForm] = useState({
+    route: 'UIUC → ORD',
+    departure: '',
+    passengers: '1',
+    details: '',
+  })
+  const [editingDriverId, setEditingDriverId] = useState(null)
+  const [editingDriverForm, setEditingDriverForm] = useState({
+    route: 'UIUC → ORD',
+    vehicle: '',
+    seats: '1',
+    departure: '',
+    pickupLocation: '',
+    notes: '',
+  })
+  const [isSavingDriverEdit, setIsSavingDriverEdit] = useState(false)
+  const [editingRequestId, setEditingRequestId] = useState(null)
+  const [editingRequestForm, setEditingRequestForm] = useState({
+    route: 'UIUC → ORD',
+    departure: '',
+    passengers: '1',
+    details: '',
+  })
+  const [isSavingRequestEdit, setIsSavingRequestEdit] = useState(false)
+  const [applicationForm, setApplicationForm] = useState({
+    fullName: '',
+    email: '',
+    primaryRoute: 'UIUC → ORD',
+    availableSeats: '2',
+    notes: '',
+  })
+  const { addNotification } = useNotification()
+
   const routes = [
     'All routes',
     'UIUC → ORD',
@@ -166,101 +332,620 @@ function App() {
   const [selectedRoute, setSelectedRoute] = useState('All routes')
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Load user from localStorage on mount
+  // Load user and token from localStorage on mount
   useEffect(() => {
     const savedUser = localStorage.getItem('rideboard_user')
-    if (savedUser) {
+    const savedToken = localStorage.getItem('rideboard_token')
+    if (savedUser && savedToken) {
       try {
         setUser(JSON.parse(savedUser))
+        setToken(savedToken)
       } catch (e) {
         localStorage.removeItem('rideboard_user')
+        localStorage.removeItem('rideboard_token')
       }
     }
   }, [])
 
-  const handleLogin = (userData) => {
+  useEffect(() => {
+    if (user) {
+      setApplicationForm((prev) => ({
+        ...prev,
+        fullName: prev.fullName || user.name,
+        email: prev.email || user.email,
+      }))
+    }
+  }, [user])
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadMarketplace = async () => {
+      setIsLoadingMarketplace(true)
+      try {
+        const [drivers, requests] = await Promise.all([
+          driverAPI.getListings(),
+          riderAPI.getRequests(),
+        ])
+
+        if (!isMounted) return
+
+        const mappedDrivers = drivers.map((driver) => ({
+          id: driver.id,
+          userId: driver.user_id,
+          name: `Driver #${driver.id}`,
+          route: driver.route,
+          seats: driver.available_seats,
+          departure: driver.departure_time,
+          vehicle: driver.vehicle,
+          pickupLocation: driver.pickup_location || '',
+          notesRaw: driver.notes || '',
+          note: [driver.pickup_location, driver.notes].filter(Boolean).join(' • '),
+        }))
+
+        const mappedRequests = requests.map((request) => ({
+          id: request.id,
+          userId: request.user_id,
+          route: request.route,
+          rider: `Rider #${request.id}`,
+          timing: request.departure_time,
+          passengers: request.passengers,
+          details: request.details || `${request.passengers} passenger(s)`,
+        }))
+
+        setDriverListings(mappedDrivers)
+        setRiderRequests(mappedRequests)
+      } catch {
+        if (!isMounted) return
+        setDriverListings(sampleDriverListings)
+        setRiderRequests(sampleRiderRequests)
+        addNotification({
+          type: 'warning',
+          title: 'Using sample data',
+          message: 'Backend data is unavailable right now.',
+        })
+      } finally {
+        if (isMounted) {
+          setIsLoadingMarketplace(false)
+        }
+      }
+    }
+
+    loadMarketplace()
+    return () => {
+      isMounted = false
+    }
+  }, [addNotification])
+
+  // Set up WebSocket connection for real-time updates
+  const handleWebSocketMessage = (message) => {
+    // Handle any direct messages from backend
+    console.log('WebSocket message:', message)
+  }
+
+  const handleWebSocketNotification = (notification) => {
+    // Handle notifications
+    if (notification.type === 'new_message') {
+      addNotification({
+        type: 'info',
+        title: 'New Message',
+        message: `You have a new message from user ${notification.data.sender_id}`,
+      })
+    } else if (notification.type === 'driver_contacted') {
+      addNotification({
+        type: 'info',
+        title: 'Driver Contacted',
+        message: `A rider contacted you about ${notification.data.route}`,
+      })
+    } else if (notification.type === 'ride_offered') {
+      addNotification({
+        type: 'info',
+        title: 'Ride Offered',
+        message: `A driver offered a ride for ${notification.data.route}`,
+      })
+    } else if (notification.type === 'user_online') {
+      console.log(`User ${notification.user_id} is online`)
+    } else if (notification.type === 'user_offline') {
+      console.log(`User ${notification.user_id} went offline`)
+    }
+  }
+
+  const { connectionStatus } = useWebSocket(
+    token,
+    handleWebSocketMessage,
+    handleWebSocketNotification
+  )
+
+  const handleLogin = (userData, accessToken) => {
     setUser(userData)
-    localStorage.setItem('rideboard_user', JSON.stringify(userData))
+    setToken(accessToken)
     setShowLoginModal(false)
   }
 
   const handleLogout = () => {
     setUser(null)
+    setToken(null)
     localStorage.removeItem('rideboard_user')
+    localStorage.removeItem('rideboard_token')
+    addNotification({
+      type: 'info',
+      title: 'Logged Out',
+      message: 'You have been logged out successfully.',
+    })
   }
 
-  const handleBookingClick = (e) => {
-    e.preventDefault()
+  const requireAuth = () => {
     if (!user) {
       setShowLoginModal(true)
-    } else {
-      // User is logged in, proceed with booking action
-      alert('Booking action - connect to your backend here!')
+      return false
+    }
+    return true
+  }
+
+  const handleContactDriver = async (driver) => {
+    if (!requireAuth()) return
+    if (!driver.userId || driver.userId === user.id) {
+      addNotification({
+        type: 'warning',
+        title: 'Contact unavailable',
+        message: 'This listing cannot be contacted from this account.',
+      })
+      return
+    }
+
+    try {
+      await messageAPI.sendMessage(
+        driver.userId,
+        `Ride inquiry: ${driver.route}`,
+        `Hi! I am interested in your ${driver.route} ride (${driver.departure}).`
+      )
+      addNotification({
+        type: 'success',
+        title: 'Message sent',
+        message: 'Your interest was sent to the driver.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not send message',
+        message: error.message || 'Please try again.',
+      })
     }
   }
 
-  const driverListings = [
-    {
-      id: 1,
-      name: 'Aarav S.',
-      route: 'UIUC → ORD',
-      seats: 3,
-      departure: 'Fri, 4:30 PM',
-      vehicle: 'Toyota Camry',
-      note: 'Usually leaves from Green Street near Illini Union.',
-    },
-    {
-      id: 2,
-      name: 'Maya L.',
-      route: 'ORD → UIUC',
-      seats: 2,
-      departure: 'Sun, 7:00 PM',
-      vehicle: 'Honda CR-V',
-      note: 'Returning after weekend flight arrivals.',
-    },
-    {
-      id: 3,
-      name: 'Daniel K.',
-      route: 'UIUC → Midway',
-      seats: 1,
-      departure: 'Sat, 9:15 AM',
-      vehicle: 'Nissan Altima',
-      note: 'Can share luggage space for one checked bag.',
-    },
-    {
-      id: 4,
-      name: 'Priya R.',
-      route: 'UIUC → Downtown Chicago',
-      seats: 2,
-      departure: 'Fri, 5:45 PM',
-      vehicle: 'Mazda CX-5',
-      note: 'Drop-off near Union Station and West Loop.',
-    },
-  ]
+  const handleOfferRide = async (request) => {
+    if (!requireAuth()) return
+    if (!request.userId || request.userId === user.id) {
+      addNotification({
+        type: 'warning',
+        title: 'Offer unavailable',
+        message: 'This request cannot be contacted from this account.',
+      })
+      return
+    }
 
-  const riderRequests = [
-    {
-      id: 1,
-      route: 'UIUC → ORD',
-      rider: 'Graduate student',
-      timing: 'This Friday before 6 PM',
-      details: 'One rider + one carry-on. Flexible pickup near campus.',
-    },
-    {
-      id: 2,
-      route: 'ORD → UIUC',
-      rider: 'Undergrad student',
-      timing: 'Sunday evening',
-      details: 'Lands at 5:40 PM, looking for shared ride to Champaign.',
-    },
-    {
-      id: 3,
-      route: 'UIUC → Downtown Chicago',
-      rider: 'Visiting scholar',
-      timing: 'Next Wednesday morning',
-      details: 'Needs drop-off near River North, light luggage only.',
-    },
-  ]
+    try {
+      await messageAPI.sendMessage(
+        request.userId,
+        `Ride offer: ${request.route}`,
+        `Hi! I can offer a ride for ${request.route}. Timing: ${request.timing}.`
+      )
+      addNotification({
+        type: 'success',
+        title: 'Offer sent',
+        message: 'Your ride offer was sent to the requester.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not send offer',
+        message: error.message || 'Please try again.',
+      })
+    }
+  }
+
+  const handleApplicationSubmit = async (event) => {
+    event.preventDefault()
+    if (!requireAuth()) return
+
+    const seats = Number(applicationForm.availableSeats)
+    if (!applicationForm.fullName.trim() || !applicationForm.email.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Missing fields',
+        message: 'Please fill in your full name and email.',
+      })
+      return
+    }
+    if (!seats || seats < 1 || seats > 6) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid seats',
+        message: 'Available seats must be between 1 and 6.',
+      })
+      return
+    }
+
+    try {
+      await applicationAPI.submitApplication({
+        full_name: applicationForm.fullName,
+        email: applicationForm.email,
+        primary_route: applicationForm.primaryRoute,
+        available_seats: seats,
+        notes: applicationForm.notes,
+      })
+      addNotification({
+        type: 'success',
+        title: 'Application submitted',
+        message: 'Your driver application was sent successfully.',
+      })
+      setApplicationForm((prev) => ({
+        ...prev,
+        availableSeats: '2',
+        notes: '',
+      }))
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Submission failed',
+        message: error.message || 'Could not submit your application.',
+      })
+    }
+  }
+
+  const handleCreateDriverListing = async (event) => {
+    event.preventDefault()
+    if (!requireAuth()) return
+
+    const seats = Number(driverForm.seats)
+    if (!driverForm.vehicle.trim() || !driverForm.departure.trim() || !driverForm.pickupLocation.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Missing fields',
+        message: 'Vehicle, departure, and pickup location are required.',
+      })
+      return
+    }
+    if (!seats || seats < 1 || seats > 6) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid seats',
+        message: 'Available seats must be between 1 and 6.',
+      })
+      return
+    }
+
+    try {
+      setIsSubmittingDriver(true)
+      const created = await driverAPI.createListing({
+        route: driverForm.route,
+        vehicle: driverForm.vehicle,
+        available_seats: seats,
+        departure_time: driverForm.departure,
+        pickup_location: driverForm.pickupLocation,
+        notes: driverForm.notes,
+      })
+
+      const mappedDriver = {
+        id: created.id,
+        userId: created.user_id,
+        name: user?.name || `Driver #${created.id}`,
+        route: created.route,
+        seats: created.available_seats,
+        departure: created.departure_time,
+        vehicle: created.vehicle,
+        pickupLocation: created.pickup_location || '',
+        notesRaw: created.notes || '',
+        note: [created.pickup_location, created.notes].filter(Boolean).join(' • '),
+      }
+
+      setDriverListings((prev) => [mappedDriver, ...prev])
+      setDriverForm({
+        route: 'UIUC → ORD',
+        vehicle: '',
+        seats: '2',
+        departure: '',
+        pickupLocation: '',
+        notes: '',
+      })
+      addNotification({
+        type: 'success',
+        title: 'Listing posted',
+        message: 'Your driver listing is now live.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not post listing',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsSubmittingDriver(false)
+    }
+  }
+
+  const handleCreateRiderRequest = async (event) => {
+    event.preventDefault()
+    if (!requireAuth()) return
+
+    const passengers = Number(requestForm.passengers)
+    if (!requestForm.departure.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Missing departure',
+        message: 'Departure timing is required.',
+      })
+      return
+    }
+    if (!passengers || passengers < 1 || passengers > 6) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid passengers',
+        message: 'Passengers must be between 1 and 6.',
+      })
+      return
+    }
+
+    try {
+      setIsSubmittingRequest(true)
+      const created = await riderAPI.createRequest({
+        route: requestForm.route,
+        departure_time: requestForm.departure,
+        passengers,
+        details: requestForm.details,
+      })
+
+      const mappedRequest = {
+        id: created.id,
+        userId: created.user_id,
+        route: created.route,
+        rider: user?.name || `Rider #${created.id}`,
+        timing: created.departure_time,
+        passengers: created.passengers,
+        details: created.details || `${created.passengers} passenger(s)`,
+      }
+
+      setRiderRequests((prev) => [mappedRequest, ...prev])
+      setRequestForm({
+        route: 'UIUC → ORD',
+        departure: '',
+        passengers: '1',
+        details: '',
+      })
+      addNotification({
+        type: 'success',
+        title: 'Request posted',
+        message: 'Your ride request is now visible.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not post request',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsSubmittingRequest(false)
+    }
+  }
+
+  const handleDeleteDriverListing = async (driver) => {
+    if (!requireAuth()) return
+    if (driver.userId !== user?.id && !user?.is_admin) return
+
+    try {
+      await driverAPI.deleteListing(driver.id)
+      setDriverListings((prev) => prev.filter((item) => item.id !== driver.id))
+      if (editingDriverId === driver.id) {
+        setEditingDriverId(null)
+      }
+      addNotification({
+        type: 'success',
+        title: 'Listing removed',
+        message: 'Your driver listing was deleted.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Delete failed',
+        message: error.message || 'Could not delete listing.',
+      })
+    }
+  }
+
+  const handleEditDriverListing = async (driver) => {
+    if (!requireAuth()) return
+    if (driver.userId !== user?.id && !user?.is_admin) return
+
+    setEditingDriverId(driver.id)
+    setEditingDriverForm({
+      route: driver.route,
+      vehicle: driver.vehicle,
+      seats: String(driver.seats),
+      departure: driver.departure,
+      pickupLocation: driver.pickupLocation || '',
+      notes: driver.notesRaw || '',
+    })
+  }
+
+  const handleCancelDriverEdit = () => {
+    setEditingDriverId(null)
+  }
+
+  const handleSaveDriverEdit = async (driverId) => {
+    if (!requireAuth()) return
+
+    const seats = Number(editingDriverForm.seats)
+    if (!editingDriverForm.route.trim() || !editingDriverForm.vehicle.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Missing fields',
+        message: 'Route and vehicle are required.',
+      })
+      return
+    }
+    if (!seats || seats < 1 || seats > 6) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid seats',
+        message: 'Available seats must be between 1 and 6.',
+      })
+      return
+    }
+    if (!editingDriverForm.departure.trim() || !editingDriverForm.pickupLocation.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Missing fields',
+        message: 'Departure and pickup location are required.',
+      })
+      return
+    }
+
+    try {
+      setIsSavingDriverEdit(true)
+      const updated = await driverAPI.updateListing(driverId, {
+        route: editingDriverForm.route,
+        vehicle: editingDriverForm.vehicle,
+        available_seats: seats,
+        departure_time: editingDriverForm.departure,
+        pickup_location: editingDriverForm.pickupLocation,
+        notes: editingDriverForm.notes,
+      })
+
+      setDriverListings((prev) =>
+        prev.map((item) =>
+          item.id === driverId
+            ? {
+                ...item,
+                route: updated.route,
+                vehicle: updated.vehicle,
+                seats: updated.available_seats,
+                departure: updated.departure_time,
+                pickupLocation: updated.pickup_location || '',
+                notesRaw: updated.notes || '',
+                note: [updated.pickup_location, updated.notes].filter(Boolean).join(' • '),
+              }
+            : item
+        )
+      )
+      setEditingDriverId(null)
+
+      addNotification({
+        type: 'success',
+        title: 'Listing updated',
+        message: 'Your driver listing was updated.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Update failed',
+        message: error.message || 'Could not update listing.',
+      })
+    } finally {
+      setIsSavingDriverEdit(false)
+    }
+  }
+
+  const handleDeleteRiderRequest = async (request) => {
+    if (!requireAuth()) return
+    if (request.userId !== user?.id && !user?.is_admin) return
+
+    try {
+      await riderAPI.deleteRequest(request.id)
+      setRiderRequests((prev) => prev.filter((item) => item.id !== request.id))
+      if (editingRequestId === request.id) {
+        setEditingRequestId(null)
+      }
+      addNotification({
+        type: 'success',
+        title: 'Request removed',
+        message: 'Your ride request was deleted.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Delete failed',
+        message: error.message || 'Could not delete request.',
+      })
+    }
+  }
+
+  const handleEditRiderRequest = async (request) => {
+    if (!requireAuth()) return
+    if (request.userId !== user?.id && !user?.is_admin) return
+
+    setEditingRequestId(request.id)
+    setEditingRequestForm({
+      route: request.route,
+      departure: request.timing,
+      passengers: String(request.passengers || 1),
+      details: request.details || '',
+    })
+  }
+
+  const handleCancelRiderRequestEdit = () => {
+    setEditingRequestId(null)
+  }
+
+  const handleSaveRiderRequestEdit = async (requestId) => {
+    if (!requireAuth()) return
+
+    const passengers = Number(editingRequestForm.passengers)
+    if (!editingRequestForm.route.trim() || !editingRequestForm.departure.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Missing fields',
+        message: 'Route and departure are required.',
+      })
+      return
+    }
+    if (!passengers || passengers < 1 || passengers > 6) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid passengers',
+        message: 'Passengers must be between 1 and 6.',
+      })
+      return
+    }
+
+    try {
+      setIsSavingRequestEdit(true)
+      const updated = await riderAPI.updateRequest(requestId, {
+        route: editingRequestForm.route,
+        departure_time: editingRequestForm.departure,
+        passengers,
+        details: editingRequestForm.details,
+      })
+
+      setRiderRequests((prev) =>
+        prev.map((item) =>
+          item.id === requestId
+            ? {
+                ...item,
+                route: updated.route,
+                timing: updated.departure_time,
+                passengers: updated.passengers,
+                details: updated.details || `${updated.passengers} passenger(s)`,
+              }
+            : item
+        )
+      )
+      setEditingRequestId(null)
+
+      addNotification({
+        type: 'success',
+        title: 'Request updated',
+        message: 'Your ride request was updated.',
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Update failed',
+        message: error.message || 'Could not update request.',
+      })
+    } finally {
+      setIsSavingRequestEdit(false)
+    }
+  }
 
   const filteredDrivers = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase()
@@ -299,11 +984,29 @@ function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            {token && (
+              <div className="flex items-center gap-2">
+                <span
+                  className={`inline-block w-2 h-2 rounded-full ${
+                    connectionStatus === 'connected' ? 'bg-green-500' : 'bg-yellow-500'
+                  }`}
+                />
+                <span className="hidden text-xs text-slate-500 sm:inline">
+                  {connectionStatus === 'connected' ? 'Live' : 'Connecting...'}
+                </span>
+              </div>
+            )}
+
             {user ? (
               <>
                 <div className="flex items-center gap-2 text-sm text-slate-700">
                   <User size={16} />
                   <span className="hidden sm:inline font-medium">{user.name}</span>
+                  {user.is_admin ? (
+                    <span className="hidden rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 sm:inline">
+                      Admin
+                    </span>
+                  ) : null}
                 </div>
                 <button
                   onClick={handleLogout}
@@ -403,6 +1106,101 @@ function App() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
+        <motion.div
+          className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          {...cardMotion}
+        >
+          <h3 className="mb-3 text-lg font-semibold text-slate-900">Post a Driver Listing</h3>
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreateDriverListing}>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Route</span>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                value={driverForm.route}
+                onChange={(event) =>
+                  setDriverForm((prev) => ({ ...prev, route: event.target.value }))
+                }
+              >
+                {routes.slice(1).map((route) => (
+                  <option key={route} value={route}>
+                    {route}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Vehicle</span>
+              <input
+                type="text"
+                value={driverForm.vehicle}
+                onChange={(event) =>
+                  setDriverForm((prev) => ({ ...prev, vehicle: event.target.value }))
+                }
+                placeholder="Toyota Camry"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Departure</span>
+              <input
+                type="text"
+                value={driverForm.departure}
+                onChange={(event) =>
+                  setDriverForm((prev) => ({ ...prev, departure: event.target.value }))
+                }
+                placeholder="Fri, 4:30 PM"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Available seats</span>
+              <input
+                type="number"
+                min="1"
+                max="6"
+                value={driverForm.seats}
+                onChange={(event) =>
+                  setDriverForm((prev) => ({ ...prev, seats: event.target.value }))
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+            <label className="md:col-span-2">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Pickup location</span>
+              <input
+                type="text"
+                value={driverForm.pickupLocation}
+                onChange={(event) =>
+                  setDriverForm((prev) => ({ ...prev, pickupLocation: event.target.value }))
+                }
+                placeholder="Near Illini Union"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+            <label className="md:col-span-2">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Notes</span>
+              <textarea
+                rows="3"
+                value={driverForm.notes}
+                onChange={(event) =>
+                  setDriverForm((prev) => ({ ...prev, notes: event.target.value }))
+                }
+                placeholder="Any luggage limits or drop-off details"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+            <div className="md:col-span-2">
+              <button
+                type="submit"
+                disabled={isSubmittingDriver}
+                className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+              >
+                {isSubmittingDriver ? 'Posting...' : 'Post Listing'}
+              </button>
+            </div>
+          </form>
+        </motion.div>
+
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-2xl font-semibold text-slate-900">Driver Listings</h2>
           <span className="text-sm text-slate-500">
@@ -410,11 +1208,21 @@ function App() {
           </span>
         </div>
 
+        {isLoadingMarketplace ? (
+          <div className="mb-4 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+            Loading live listings...
+          </div>
+        ) : null}
+
         <div className="grid gap-4 sm:grid-cols-2">
           {filteredDrivers.map((driver) => (
             <motion.article
               key={driver.id}
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              className={`rounded-2xl border bg-white p-5 shadow-sm transition ${
+                editingDriverId === driver.id
+                  ? 'border-blue-400 ring-2 ring-blue-100 bg-blue-50/30'
+                  : 'border-slate-200'
+              }`}
               {...cardMotion}
             >
               <div className="flex items-start justify-between gap-3">
@@ -424,31 +1232,149 @@ function App() {
                     <MapPin size={15} /> {driver.route}
                   </p>
                 </div>
-                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                  {driver.seats} seat{driver.seats === 1 ? '' : 's'}
-                </span>
+                <div className="flex flex-col items-end gap-1">
+                  {editingDriverId === driver.id ? (
+                    <span className="rounded-full bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white">
+                      Editing...
+                    </span>
+                  ) : null}
+                  <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                    {driver.seats} seat{driver.seats === 1 ? '' : 's'}
+                  </span>
+                </div>
               </div>
 
               <div className="mt-4 space-y-2 text-sm text-slate-700">
-                <p className="flex items-center gap-2">
-                  <Clock3 size={15} /> Departure: {driver.departure}
-                </p>
-                <p className="flex items-center gap-2">
-                  <Car size={15} /> Vehicle: {driver.vehicle}
-                </p>
-                <p>{driver.note}</p>
+                {editingDriverId === driver.id ? (
+                  <div className="grid gap-2">
+                    <select
+                      value={editingDriverForm.route}
+                      onChange={(event) =>
+                        setEditingDriverForm((prev) => ({ ...prev, route: event.target.value }))
+                      }
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    >
+                      {routes.slice(1).map((route) => (
+                        <option key={route} value={route}>
+                          {route}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={editingDriverForm.departure}
+                      onChange={(event) =>
+                        setEditingDriverForm((prev) => ({ ...prev, departure: event.target.value }))
+                      }
+                      placeholder="Departure time"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                    <input
+                      type="text"
+                      value={editingDriverForm.vehicle}
+                      onChange={(event) =>
+                        setEditingDriverForm((prev) => ({ ...prev, vehicle: event.target.value }))
+                      }
+                      placeholder="Vehicle"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      max="6"
+                      value={editingDriverForm.seats}
+                      onChange={(event) =>
+                        setEditingDriverForm((prev) => ({ ...prev, seats: event.target.value }))
+                      }
+                      placeholder="Seats"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                    <input
+                      type="text"
+                      value={editingDriverForm.pickupLocation}
+                      onChange={(event) =>
+                        setEditingDriverForm((prev) => ({ ...prev, pickupLocation: event.target.value }))
+                      }
+                      placeholder="Pickup location"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                    <textarea
+                      rows="2"
+                      value={editingDriverForm.notes}
+                      onChange={(event) =>
+                        setEditingDriverForm((prev) => ({ ...prev, notes: event.target.value }))
+                      }
+                      placeholder="Notes"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <p className="flex items-center gap-2">
+                      <Clock3 size={15} /> Departure: {driver.departure}
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <Car size={15} /> Vehicle: {driver.vehicle}
+                    </p>
+                    <p>{driver.note}</p>
+                  </>
+                )}
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  onClick={handleBookingClick}
-                  className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-                >
-                  Contact
-                </button>
-                <button className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100">
-                  View Details
-                </button>
+                {editingDriverId === driver.id ? (
+                  <>
+                    <button
+                      onClick={() => handleSaveDriverEdit(driver.id)}
+                      disabled={isSavingDriverEdit}
+                      className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      {isSavingDriverEdit ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={handleCancelDriverEdit}
+                      className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleContactDriver(driver)}
+                      className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                    >
+                      Contact
+                    </button>
+                    <button className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100">
+                      View Details
+                    </button>
+                    {user && (user.id === driver.userId || user.is_admin) ? (
+                      <>
+                        <button
+                          onClick={() => handleEditDriverListing(driver)}
+                          className="rounded-lg border border-blue-300 px-3.5 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteDriverListing(driver)}
+                          className="rounded-lg border border-red-300 px-3.5 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : null}
+                  </>
+                )}
+                {editingDriverId === driver.id && user && (user.id === driver.userId || user.is_admin) ? (
+                  <button
+                    onClick={() => handleDeleteDriverListing(driver)}
+                    className="rounded-lg border border-red-300 px-3.5 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                ) : null}
               </div>
             </motion.article>
           ))}
@@ -463,25 +1389,204 @@ function App() {
 
       <section id="requests" className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
         <h2 className="mb-4 text-2xl font-semibold text-slate-900">Ride Requests</h2>
+
+        <motion.div
+          className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          {...cardMotion}
+        >
+          <h3 className="mb-3 text-lg font-semibold text-slate-900">Post a Ride Request</h3>
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreateRiderRequest}>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Route</span>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                value={requestForm.route}
+                onChange={(event) =>
+                  setRequestForm((prev) => ({ ...prev, route: event.target.value }))
+                }
+              >
+                {routes.slice(1).map((route) => (
+                  <option key={route} value={route}>
+                    {route}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Departure timing</span>
+              <input
+                type="text"
+                value={requestForm.departure}
+                onChange={(event) =>
+                  setRequestForm((prev) => ({ ...prev, departure: event.target.value }))
+                }
+                placeholder="Sunday evening"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Passengers</span>
+              <input
+                type="number"
+                min="1"
+                max="6"
+                value={requestForm.passengers}
+                onChange={(event) =>
+                  setRequestForm((prev) => ({ ...prev, passengers: event.target.value }))
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+            <label className="md:col-span-2">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Details</span>
+              <textarea
+                rows="3"
+                value={requestForm.details}
+                onChange={(event) =>
+                  setRequestForm((prev) => ({ ...prev, details: event.target.value }))
+                }
+                placeholder="Pickup area, luggage, and flexibility"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+            <div className="md:col-span-2">
+              <button
+                type="submit"
+                disabled={isSubmittingRequest}
+                className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-60"
+              >
+                {isSubmittingRequest ? 'Posting...' : 'Post Request'}
+              </button>
+            </div>
+          </form>
+        </motion.div>
+
         <div className="grid gap-4 lg:grid-cols-3">
           {riderRequests.map((request) => (
             <motion.article
               key={request.id}
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              className={`rounded-2xl border bg-white p-5 shadow-sm transition ${
+                editingRequestId === request.id
+                  ? 'border-blue-400 ring-2 ring-blue-100 bg-blue-50/30'
+                  : 'border-slate-200'
+              }`}
               {...cardMotion}
             >
+              {editingRequestId === request.id ? (
+                <div className="mb-2">
+                  <span className="rounded-full bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white">
+                    Editing...
+                  </span>
+                </div>
+              ) : null}
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                {request.route}
+                {editingRequestId === request.id ? (
+                  <select
+                    value={editingRequestForm.route}
+                    onChange={(event) =>
+                      setEditingRequestForm((prev) => ({ ...prev, route: event.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-700 outline-none ring-blue-200 transition focus:ring"
+                  >
+                    {routes.slice(1).map((route) => (
+                      <option key={route} value={route}>
+                        {route}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  request.route
+                )}
               </p>
               <h3 className="mt-2 text-lg font-semibold text-slate-900">{request.rider}</h3>
-              <p className="mt-1 text-sm text-slate-600">{request.timing}</p>
-              <p className="mt-3 text-sm text-slate-700">{request.details}</p>
-              <button
-                onClick={handleBookingClick}
-                className="mt-4 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500"
-              >
-                Offer Ride
-              </button>
+              <div className="mt-2 space-y-2">
+                {editingRequestId === request.id ? (
+                  <>
+                    <input
+                      type="text"
+                      value={editingRequestForm.departure}
+                      onChange={(event) =>
+                        setEditingRequestForm((prev) => ({ ...prev, departure: event.target.value }))
+                      }
+                      placeholder="Departure timing"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      max="6"
+                      value={editingRequestForm.passengers}
+                      onChange={(event) =>
+                        setEditingRequestForm((prev) => ({ ...prev, passengers: event.target.value }))
+                      }
+                      placeholder="Passengers"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                    <textarea
+                      rows="2"
+                      value={editingRequestForm.details}
+                      onChange={(event) =>
+                        setEditingRequestForm((prev) => ({ ...prev, details: event.target.value }))
+                      }
+                      placeholder="Details"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-slate-600">{request.timing}</p>
+                    <p className="text-sm text-slate-700">{request.details}</p>
+                  </>
+                )}
+              </div>
+              {editingRequestId === request.id ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleSaveRiderRequestEdit(request.id)}
+                    disabled={isSavingRequestEdit}
+                    className="rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {isSavingRequestEdit ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={handleCancelRiderRequestEdit}
+                    className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Cancel
+                  </button>
+                  {user && (user.id === request.userId || user.is_admin) ? (
+                    <button
+                      onClick={() => handleDeleteRiderRequest(request)}
+                      className="rounded-lg border border-red-300 px-3.5 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <button
+                  onClick={() => handleOfferRide(request)}
+                  className="mt-4 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500"
+                >
+                  Offer Ride
+                </button>
+              )}
+              {editingRequestId !== request.id && user && (user.id === request.userId || user.is_admin) ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleEditRiderRequest(request)}
+                    className="rounded-lg border border-blue-300 px-3.5 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteRiderRequest(request)}
+                    className="rounded-lg border border-red-300 px-3.5 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ) : null}
             </motion.article>
           ))}
         </div>
@@ -494,15 +1599,18 @@ function App() {
         >
           <h2 className="text-2xl font-semibold text-slate-900">Driver Application</h2>
           <p className="mt-2 text-sm text-slate-600">
-            Interested in posting rides? Submit your basic info below. This MVP
-            form is a placeholder for future backend integration.
+            Interested in posting rides? Submit your basic info below.
           </p>
-          <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={(event) => event.preventDefault()}>
+          <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleApplicationSubmit}>
             <label>
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Full name</span>
               <input
                 type="text"
                 placeholder="Your name"
+                value={applicationForm.fullName}
+                onChange={(event) =>
+                  setApplicationForm((prev) => ({ ...prev, fullName: event.target.value }))
+                }
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
               />
             </label>
@@ -511,12 +1619,22 @@ function App() {
               <input
                 type="email"
                 placeholder="netid@illinois.edu"
+                value={applicationForm.email}
+                onChange={(event) =>
+                  setApplicationForm((prev) => ({ ...prev, email: event.target.value }))
+                }
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
               />
             </label>
             <label>
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Primary route</span>
-              <select className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring">
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                value={applicationForm.primaryRoute}
+                onChange={(event) =>
+                  setApplicationForm((prev) => ({ ...prev, primaryRoute: event.target.value }))
+                }
+              >
                 {routes.slice(1).map((route) => (
                   <option key={route}>{route}</option>
                 ))}
@@ -529,6 +1647,10 @@ function App() {
                 min="1"
                 max="6"
                 placeholder="2"
+                value={applicationForm.availableSeats}
+                onChange={(event) =>
+                  setApplicationForm((prev) => ({ ...prev, availableSeats: event.target.value }))
+                }
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
               />
             </label>
@@ -537,13 +1659,16 @@ function App() {
               <textarea
                 rows="4"
                 placeholder="Share your typical departure times, pickup area, and any rider expectations"
+                value={applicationForm.notes}
+                onChange={(event) =>
+                  setApplicationForm((prev) => ({ ...prev, notes: event.target.value }))
+                }
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
               />
             </label>
             <div className="md:col-span-2">
               <button
-                onClick={handleBookingClick}
-                type="button"
+                type="submit"
                 className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
               >
                 Submit Application
