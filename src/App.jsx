@@ -223,6 +223,7 @@ function AvatarName({
   nameClassName = 'text-sm font-semibold text-slate-900',
   subtitleClassName = 'text-xs text-slate-600',
 }) {
+  const [hasImageError, setHasImageError] = useState(false)
   const displayName = name || 'Unknown user'
   const initials = displayName
     .split(/\s+/)
@@ -234,10 +235,11 @@ function AvatarName({
 
   return (
     <div className={`flex items-center gap-3 ${className}`.trim()}>
-      {resolvedAvatarUrl ? (
+      {resolvedAvatarUrl && !hasImageError ? (
         <img
           src={resolvedAvatarUrl}
           alt={`${displayName} avatar`}
+          onError={() => setHasImageError(true)}
           className={`${avatarClassName} rounded-full object-cover ring-1 ring-slate-200`.trim()}
         />
       ) : (
@@ -332,12 +334,14 @@ function App() {
   const [reportDrafts, setReportDrafts] = useState({})
   const [isSubmittingReportId, setIsSubmittingReportId] = useState(null)
   const [expandedDriverDetailsId, setExpandedDriverDetailsId] = useState(null)
-  const [contactDrafts, setContactDrafts] = useState({})
-  const [isSendingContactId, setIsSendingContactId] = useState(null)
+  const [activeDriverChat, setActiveDriverChat] = useState(null)
+  const [driverChatDraft, setDriverChatDraft] = useState('')
+  const [isSendingDriverChat, setIsSendingDriverChat] = useState(false)
   const [adminReports, setAdminReports] = useState([])
   const [isLoadingAdminReports, setIsLoadingAdminReports] = useState(false)
   const [isUpdatingAdminReportId, setIsUpdatingAdminReportId] = useState(null)
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+  const [isUserAvatarBroken, setIsUserAvatarBroken] = useState(false)
   const [mySharedRideRequests, setMySharedRideRequests] = useState([])
   const [driverSharedRideRequests, setDriverSharedRideRequests] = useState([])
   const [isLoadingSharedRideRequests, setIsLoadingSharedRideRequests] = useState(false)
@@ -395,6 +399,10 @@ function App() {
       }))
     }
   }, [user])
+
+  useEffect(() => {
+    setIsUserAvatarBroken(false)
+  }, [user?.avatar_url])
 
   const loadMessages = useCallback(
     async ({ showError = false } = {}) => {
@@ -727,6 +735,32 @@ function App() {
     [inboxMessages]
   )
 
+  const hasApplicationUpdate = useMemo(() => {
+    if (!user || user.is_admin) return false
+    return myApplications.some((application) => application.status !== 'pending')
+  }, [myApplications, user])
+
+  const hasMessageOrRideUpdate = useMemo(() => {
+    const hasPendingSharedRideRequests = driverSharedRideRequests.some(
+      (request) => request.status === 'pending'
+    )
+    return unreadInboxCount > 0 || hasPendingSharedRideRequests
+  }, [driverSharedRideRequests, unreadInboxCount])
+
+  const activeDriverMessages = useMemo(() => {
+    if (!activeDriverChat || !user) return []
+
+    return [...inboxMessages, ...sentMessages]
+      .filter((message) => {
+        const withDriverAsSender =
+          message.sender_id === activeDriverChat.userId && message.recipient_id === user.id
+        const withDriverAsRecipient =
+          message.sender_id === user.id && message.recipient_id === activeDriverChat.userId
+        return withDriverAsSender || withDriverAsRecipient
+      })
+      .sort((left, right) => new Date(left.created_at) - new Date(right.created_at))
+  }, [activeDriverChat, inboxMessages, sentMessages, user])
+
   const adminChatConversations = useMemo(() => {
     const conversationMap = new Map()
 
@@ -858,7 +892,6 @@ function App() {
     }
 
     try {
-      setIsSendingContactId(driver.id)
       const trimmedCustomBody = (customBody || '').trim()
       const defaultBody = `Hi! I am interested in your ${driver.route} ride (${driver.departure}).`
       await messageAPI.sendMessage(
@@ -871,11 +904,8 @@ function App() {
         title: 'Message sent',
         message: 'Your interest was sent to the driver.',
       })
-      setContactDrafts((prev) => ({
-        ...prev,
-        [driver.id]: { isOpen: false, body: '' },
-      }))
       setActiveUtilityPanel('messages')
+      setMessageTab('sent')
       loadMessages()
     } catch (error) {
       addNotification({
@@ -883,8 +913,6 @@ function App() {
         title: 'Could not send message',
         message: error.message || 'Please try again.',
       })
-    } finally {
-      setIsSendingContactId(null)
     }
   }
 
@@ -892,7 +920,7 @@ function App() {
     setExpandedDriverDetailsId((prev) => (prev === driverId ? null : driverId))
   }
 
-  const handleToggleContactDraft = (driver) => {
+  const handleStartDriverChat = (driver) => {
     if (!requireAuth()) return
     if (!driver.userId || driver.userId === user?.id) {
       addNotification({
@@ -903,16 +931,57 @@ function App() {
       return
     }
 
-    setContactDrafts((prev) => {
-      const existing = prev[driver.id] || { isOpen: false, body: '' }
-      return {
-        ...prev,
-        [driver.id]: {
-          isOpen: !existing.isOpen,
-          body: existing.body,
-        },
-      }
+    setActiveDriverChat({
+      id: driver.id,
+      userId: driver.userId,
+      name: driver.name,
+      route: driver.route,
+      departure: driver.departure,
     })
+    setDriverChatDraft(`Hi! I am interested in your ${driver.route} ride (${driver.departure}).`)
+    setMessageTab('sent')
+    setActiveUtilityPanel('messages')
+    loadMessages()
+  }
+
+  const handleSendDriverChat = async () => {
+    if (!activeDriverChat) return
+    if (!requireAuth()) return
+
+    const body = driverChatDraft.trim()
+    if (!body) {
+      addNotification({
+        type: 'warning',
+        title: 'Message required',
+        message: 'Please write a message before sending.',
+      })
+      return
+    }
+
+    try {
+      setIsSendingDriverChat(true)
+      await messageAPI.sendMessage(
+        activeDriverChat.userId,
+        `Ride inquiry: ${activeDriverChat.route}`,
+        body
+      )
+      addNotification({
+        type: 'success',
+        title: 'Message sent',
+        message: `Your message was sent to ${activeDriverChat.name}.`,
+      })
+      setDriverChatDraft('')
+      setMessageTab('sent')
+      await loadMessages()
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not send message',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsSendingDriverChat(false)
+    }
   }
 
   const handleOfferRide = async (request) => {
@@ -1822,7 +1891,8 @@ function App() {
     (avatarUrl) => {
       if (!avatarUrl) return ''
       if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) return avatarUrl
-      return `${backendBaseUrl}${avatarUrl}`
+      const normalizedPath = avatarUrl.startsWith('/') ? avatarUrl : `/${avatarUrl}`
+      return new URL(normalizedPath, `${backendBaseUrl}/`).toString()
     },
     [backendBaseUrl]
   )
@@ -1924,7 +1994,7 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen flex flex-col">
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2 sm:gap-4">
@@ -1942,12 +2012,15 @@ function App() {
                 onClick={() =>
                   setActiveUtilityPanel((prev) => (prev === 'messages' ? null : 'messages'))
                 }
-                className={`inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
+                className={`relative inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
                   activeUtilityPanel === 'messages'
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
                     : 'border-slate-300 text-slate-700 hover:bg-slate-100'
                 }`}
               >
+                {hasMessageOrRideUpdate ? (
+                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-red-500" />
+                ) : null}
                 <MessageSquare size={16} />
                 <span className="text-[10px] leading-none">Msg</span>
               </button>
@@ -1958,12 +2031,15 @@ function App() {
                 onClick={() =>
                   setActiveUtilityPanel((prev) => (prev === 'application' ? null : 'application'))
                 }
-                className={`inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
+                className={`relative inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
                   activeUtilityPanel === 'application'
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
                     : 'border-slate-300 text-slate-700 hover:bg-slate-100'
                 }`}
               >
+                {hasApplicationUpdate ? (
+                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-red-500" />
+                ) : null}
                 <User size={16} />
                 <span className="text-[10px] leading-none">Apply</span>
               </button>
@@ -2022,10 +2098,11 @@ function App() {
               <>
                 <div className="flex items-center gap-2 text-sm text-slate-700">
                   <div className="relative">
-                    {user.avatar_url ? (
+                    {user.avatar_url && !isUserAvatarBroken ? (
                       <img
                         src={resolveAvatarUrl(user.avatar_url)}
                         alt="avatar"
+                        onError={() => setIsUserAvatarBroken(true)}
                         className="h-8 w-8 rounded-full border border-slate-300 object-cover"
                       />
                     ) : (
@@ -2085,7 +2162,7 @@ function App() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl px-4 pb-10 pt-8 sm:px-6 lg:px-8">
+      <section className="order-1 mx-auto max-w-6xl px-4 pb-10 pt-8 sm:px-6 lg:px-8">
         <motion.div
           className="rounded-3xl bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 p-8 text-white shadow-xl sm:p-12"
           initial={{ opacity: 0, y: 14 }}
@@ -2120,7 +2197,7 @@ function App() {
         </motion.div>
       </section>
 
-      <section id="search" className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
+      <section id="search" className="order-2 mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
         <datalist id="route-focus-options">
           {routeFocusOptions.map((route) => (
             <option key={`route-focus-option-${route}`} value={route} />
@@ -2169,7 +2246,7 @@ function App() {
         </motion.div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
+      <section className="order-4 mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
         {activeUtilityPanel ? (
         <div className="fixed inset-0 z-40 bg-slate-900/30 p-4 sm:p-6">
           <div className="mx-auto mt-16 max-h-[calc(100vh-6rem)] max-w-5xl overflow-y-auto rounded-2xl">
@@ -2358,6 +2435,74 @@ function App() {
               </div>
 
               <div className="mt-5 space-y-3">
+                {activeDriverChat ? (
+                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">Chat with {activeDriverChat.name}</h3>
+                        <p className="mt-1 text-xs text-slate-600">{activeDriverChat.route} • {activeDriverChat.departure}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setActiveDriverChat(null)
+                          setDriverChatDraft('')
+                        }}
+                        className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <div className="max-h-72 space-y-2 overflow-y-auto bg-slate-50 px-3 py-3">
+                      {activeDriverMessages.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
+                          No messages yet. Start the conversation below.
+                        </div>
+                      ) : null}
+                      {activeDriverMessages.map((message) => {
+                        const isMine = message.sender_id === user?.id
+                        return (
+                          <div key={`driver-chat-${message.id}`} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                            <div
+                              className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                                isMine ? 'bg-emerald-100 text-slate-900' : 'bg-white text-slate-900'
+                              }`}
+                            >
+                              <p className="whitespace-pre-wrap break-words">{message.body}</p>
+                              <p className="mt-1 text-right text-[10px] text-slate-500">{formatMessageTime(message.created_at)}</p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="border-t border-slate-200 bg-white px-3 py-3">
+                      <textarea
+                        rows="2"
+                        value={driverChatDraft}
+                        onChange={(event) => setDriverChatDraft(event.target.value)}
+                        placeholder="Write your message to the driver..."
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                      />
+                      <div className="mt-2 flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setDriverChatDraft('')}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                        >
+                          Clear
+                        </button>
+                      <button
+                        onClick={handleSendDriverChat}
+                        disabled={isSendingDriverChat}
+                        className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+                      >
+                        {isSendingDriverChat ? 'Sending...' : 'Send to Driver'}
+                      </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-slate-900">Shared Ride Requests</h3>
@@ -2546,7 +2691,7 @@ function App() {
                   </div>
                 ) : null}
 
-                {(messageTab === 'inbox' ? inboxMessages : sentMessages).map((message) => {
+                {!activeDriverChat && (messageTab === 'inbox' ? inboxMessages : sentMessages).map((message) => {
                   const isInboxView = messageTab === 'inbox'
                   const replyDraft = replyDrafts[message.id] || ''
 
@@ -2620,7 +2765,7 @@ function App() {
                   )
                 })}
 
-                {!isLoadingMessages && (messageTab === 'inbox' ? inboxMessages : sentMessages).length === 0 ? (
+                {!activeDriverChat && !isLoadingMessages && (messageTab === 'inbox' ? inboxMessages : sentMessages).length === 0 ? (
                   <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
                     {messageTab === 'inbox'
                       ? 'No messages yet. When riders or drivers contact you, they will appear here.'
@@ -2981,7 +3126,7 @@ function App() {
                 ) : (
                   <>
                     <button
-                      onClick={() => handleToggleContactDraft(driver)}
+                      onClick={() => handleStartDriverChat(driver)}
                       className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
                     >
                       Contact
@@ -3030,47 +3175,6 @@ function App() {
                   {driver.skills ? <p className="mt-1"><span className="font-medium">Skills:</span> {driver.skills}</p> : null}
                   {driver.labels ? <p className="mt-1"><span className="font-medium">Labels:</span> {driver.labels}</p> : null}
                   {driver.notesRaw ? <p className="mt-1"><span className="font-medium">Notes:</span> {driver.notesRaw}</p> : null}
-                </div>
-              ) : null}
-
-              {contactDrafts[driver.id]?.isOpen ? (
-                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs font-semibold text-slate-700">Message driver</p>
-                  <textarea
-                    rows="2"
-                    value={contactDrafts[driver.id]?.body || ''}
-                    onChange={(event) =>
-                      setContactDrafts((prev) => ({
-                        ...prev,
-                        [driver.id]: {
-                          isOpen: true,
-                          body: event.target.value,
-                        },
-                      }))
-                    }
-                    placeholder={`Hi! I am interested in your ${driver.route} ride (${driver.departure}).`}
-                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
-                  />
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => handleContactDriver(driver, contactDrafts[driver.id]?.body || '')}
-                      disabled={isSendingContactId === driver.id}
-                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
-                    >
-                      {isSendingContactId === driver.id ? 'Sending...' : 'Send'}
-                    </button>
-                    <button
-                      onClick={() =>
-                        setContactDrafts((prev) => ({
-                          ...prev,
-                          [driver.id]: { isOpen: false, body: prev[driver.id]?.body || '' },
-                        }))
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      Cancel
-                    </button>
-                  </div>
                 </div>
               ) : null}
 
@@ -3534,7 +3638,7 @@ function App() {
         ) : null}
       </section>
 
-      <section id="requests" className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
+      <section id="requests" className="order-3 mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
         <h2 className="mb-4 text-2xl font-semibold text-slate-900">Ride Requests</h2>
 
         <motion.div
@@ -3741,7 +3845,7 @@ function App() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
+      <section className="order-5 mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
         {user?.is_admin ? (
           <motion.div
             className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"

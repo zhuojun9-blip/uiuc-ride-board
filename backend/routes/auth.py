@@ -94,12 +94,20 @@ async def upload_avatar(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    allowed_types = {
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+        "image/heic",
+        "image/heif",
+    }
     if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail="Avatar must be a JPG, PNG, WEBP, or GIF image")
+        raise HTTPException(status_code=400, detail="Avatar must be a JPG, PNG, WEBP, GIF, HEIC, or HEIF image")
 
     extension = Path(file.filename or "avatar").suffix.lower() or ".png"
-    if extension not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+    if extension not in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"}:
         extension = ".png"
 
     file_bytes = await file.read()
