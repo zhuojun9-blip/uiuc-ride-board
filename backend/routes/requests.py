@@ -15,6 +15,7 @@ def serialize_request(request: RiderRequest, db: Session):
         id=request.id,
         user_id=request.user_id,
         user_name=request_owner.name if request_owner else None,
+        user_avatar_url=request_owner.avatar_url if request_owner else None,
         route=request.route,
         departure_time=request.departure_time,
         passengers=request.passengers,

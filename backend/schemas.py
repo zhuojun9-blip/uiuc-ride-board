@@ -54,6 +54,7 @@ class DriverResponse(DriverBase):
     id: int
     user_id: int
     user_name: Optional[str] = None
+    user_avatar_url: Optional[str] = None
     rating_average: float = 0
     rating_count: int = 0
     ride_history_count: int = 0
@@ -86,6 +87,7 @@ class DriverHistoryResponse(BaseModel):
     driver_user_id: int
     driver_name: str
     driver_email: EmailStr
+    driver_avatar_url: Optional[str] = None
     total_rides: int
     active_rides: int
     inactive_rides: int
@@ -113,6 +115,7 @@ class RiderRequestResponse(RiderRequestBase):
     id: int
     user_id: int
     user_name: Optional[str] = None
+    user_avatar_url: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -146,6 +149,7 @@ class DriverApplicationStatusUpdate(BaseModel):
 class DriverApplicationResponse(DriverApplicationCreate):
     id: int
     user_id: int
+    user_avatar_url: Optional[str] = None
     status: str
     created_at: datetime
     updated_at: datetime
@@ -163,8 +167,10 @@ class MessageResponse(BaseModel):
     id: int
     sender_id: int
     sender_name: Optional[str] = None
+    sender_avatar_url: Optional[str] = None
     recipient_id: int
     recipient_name: Optional[str] = None
+    recipient_avatar_url: Optional[str] = None
     subject: str
     body: str
     is_read: bool
@@ -185,6 +191,7 @@ class RideReviewResponse(BaseModel):
     id: int
     reviewer_id: int
     reviewer_name: Optional[str] = None
+    reviewer_avatar_url: Optional[str] = None
     driver_user_id: int
     driver_listing_id: int
     rating: int
@@ -210,13 +217,45 @@ class RideReportResponse(BaseModel):
     id: int
     reporter_id: int
     reporter_name: Optional[str] = None
+    reporter_avatar_url: Optional[str] = None
     against_user_id: int
     against_user_name: Optional[str] = None
+    against_user_avatar_url: Optional[str] = None
     driver_listing_id: int
     category: str
     details: str
     status: str
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SharedRideRequestCreate(BaseModel):
+    driver_listing_id: int
+    seats_requested: int
+    message: Optional[str] = None
+
+
+class SharedRideRequestStatusUpdate(BaseModel):
+    status: str
+
+
+class SharedRideRequestResponse(BaseModel):
+    id: int
+    driver_listing_id: int
+    driver_user_id: int
+    driver_route: Optional[str] = None
+    driver_departure_time: Optional[str] = None
+    rider_user_id: int
+    rider_name: Optional[str] = None
+    rider_avatar_url: Optional[str] = None
+    rider_email: Optional[EmailStr] = None
+    seats_requested: int
+    message: Optional[str] = None
+    status: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

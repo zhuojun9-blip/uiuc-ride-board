@@ -102,3 +102,17 @@ class RideReport(Base):
     details = Column(Text, nullable=False)
     status = Column(String, nullable=False, default="open", index=True)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class SharedRideRequest(Base):
+    __tablename__ = "shared_ride_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    driver_listing_id = Column(Integer, nullable=False, index=True)
+    driver_user_id = Column(Integer, nullable=False, index=True)
+    rider_user_id = Column(Integer, nullable=False, index=True)
+    seats_requested = Column(Integer, nullable=False, default=1)
+    message = Column(Text)
+    status = Column(String, nullable=False, default="pending", index=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

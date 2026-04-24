@@ -8,29 +8,60 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
+
+def serialize_application(application: DriverApplication, db: Session):
+    applicant = db.query(User).filter(User.id == application.user_id).first()
+    return schemas.DriverApplicationResponse(
+        id=application.id,
+        user_id=application.user_id,
+        full_name=application.full_name,
+        email=application.email,
+        primary_route=application.primary_route,
+        available_seats=application.available_seats,
+        notes=application.notes,
+        user_avatar_url=applicant.avatar_url if applicant else None,
+        status=application.status,
+        created_at=application.created_at,
+        updated_at=application.updated_at,
+    )
+
 @router.post("/", response_model=schemas.DriverApplicationResponse)
 async def submit_application(
     app_data: schemas.DriverApplicationCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    db_app = DriverApplication(
-        user_id=current_user.id,
-        **app_data.dict()
-    )
-    db.add(db_app)
+    existing_application = db.query(DriverApplication).filter(
+        DriverApplication.user_id == current_user.id
+    ).first()
+
+    if existing_application:
+        existing_application.full_name = app_data.full_name
+        existing_application.email = app_data.email
+        existing_application.primary_route = app_data.primary_route
+        existing_application.available_seats = app_data.available_seats
+        existing_application.notes = app_data.notes
+        db_app = existing_application
+    else:
+        db_app = DriverApplication(
+            user_id=current_user.id,
+            **app_data.dict()
+        )
+        db.add(db_app)
+
     db.commit()
     db.refresh(db_app)
-    return db_app
+    return serialize_application(db_app, db)
 
 @router.get("/", response_model=List[schemas.DriverApplicationResponse])
 async def list_my_applications(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return db.query(DriverApplication).filter(
+    applications = db.query(DriverApplication).filter(
         DriverApplication.user_id == current_user.id
     ).all()
+    return [serialize_application(application, db) for application in applications]
 
 
 @router.get("/all", response_model=List[schemas.DriverApplicationResponse])
@@ -41,7 +72,8 @@ async def list_all_applications(
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    return db.query(DriverApplication).order_by(DriverApplication.created_at.desc()).all()
+    applications = db.query(DriverApplication).order_by(DriverApplication.created_at.desc()).all()
+    return [serialize_application(application, db) for application in applications]
 
 @router.get("/{app_id}", response_model=schemas.DriverApplicationResponse)
 async def get_application(
@@ -56,7 +88,7 @@ async def get_application(
     if app.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    return app
+    return serialize_application(app, db)
 
 @router.put("/{app_id}", response_model=schemas.DriverApplicationResponse)
 async def update_application(
@@ -77,7 +109,7 @@ async def update_application(
     
     db.commit()
     db.refresh(app)
-    return app
+    return serialize_application(app, db)
 
 
 @router.put("/{app_id}/status", response_model=schemas.DriverApplicationResponse)
@@ -101,7 +133,7 @@ async def update_application_status(
     app.status = normalized_status
     db.commit()
     db.refresh(app)
-    return app
+    return serialize_application(app, db)
 
 @router.delete("/{app_id}", status_code=204)
 async def delete_application(

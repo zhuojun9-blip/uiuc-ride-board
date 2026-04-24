@@ -16,7 +16,7 @@ import {
   MessageSquare,
 } from 'lucide-react'
 import { useNotification } from './providers/NotificationProvider'
-import { applicationAPI, authAPI, driverAPI, messageAPI, reportAPI, reviewAPI, riderAPI } from './api/client'
+import { applicationAPI, authAPI, driverAPI, messageAPI, reportAPI, reviewAPI, riderAPI, sharedRideAPI } from './api/client'
 import { useWebSocket } from './hooks/useWebSocket'
 
 const sampleDriverListings = []
@@ -213,6 +213,48 @@ function LoginModal({ isOpen, onClose, onLogin }) {
   )
 }
 
+function AvatarName({
+  name,
+  avatarUrl,
+  resolveAvatarUrl,
+  subtitle = null,
+  className = '',
+  avatarClassName = 'h-10 w-10',
+  nameClassName = 'text-sm font-semibold text-slate-900',
+  subtitleClassName = 'text-xs text-slate-600',
+}) {
+  const displayName = name || 'Unknown user'
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('') || '?'
+  const resolvedAvatarUrl = avatarUrl ? resolveAvatarUrl(avatarUrl) : ''
+
+  return (
+    <div className={`flex items-center gap-3 ${className}`.trim()}>
+      {resolvedAvatarUrl ? (
+        <img
+          src={resolvedAvatarUrl}
+          alt={`${displayName} avatar`}
+          className={`${avatarClassName} rounded-full object-cover ring-1 ring-slate-200`.trim()}
+        />
+      ) : (
+        <div
+          className={`${avatarClassName} flex items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 ring-1 ring-slate-200`.trim()}
+        >
+          {initials}
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className={`${nameClassName} truncate`.trim()}>{displayName}</p>
+        {subtitle ? <div className={subtitleClassName}>{subtitle}</div> : null}
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [user, setUser] = useState(null)
   const [token, setToken] = useState(null)
@@ -263,7 +305,6 @@ function App() {
   const [applicationForm, setApplicationForm] = useState({
     fullName: '',
     email: '',
-    primaryRoute: 'UIUC → ORD',
     availableSeats: '2',
     notes: '',
   })
@@ -294,6 +335,12 @@ function App() {
   const [isLoadingAdminReports, setIsLoadingAdminReports] = useState(false)
   const [isUpdatingAdminReportId, setIsUpdatingAdminReportId] = useState(null)
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+  const [mySharedRideRequests, setMySharedRideRequests] = useState([])
+  const [driverSharedRideRequests, setDriverSharedRideRequests] = useState([])
+  const [isLoadingSharedRideRequests, setIsLoadingSharedRideRequests] = useState(false)
+  const [sharedRideDrafts, setSharedRideDrafts] = useState({})
+  const [isSubmittingSharedRideId, setIsSubmittingSharedRideId] = useState(null)
+  const [isUpdatingSharedRideRequestId, setIsUpdatingSharedRideRequestId] = useState(null)
   const { addNotification } = useNotification()
   const avatarInputRef = useRef(null)
 
@@ -421,6 +468,7 @@ function App() {
           id: driver.id,
           userId: driver.user_id,
           name: driver.user_name || `Driver #${driver.id}`,
+          avatarUrl: driver.user_avatar_url || '',
           route: driver.route,
           seats: driver.available_seats,
           pricePerSeat: driver.price_per_seat || 0,
@@ -441,6 +489,7 @@ function App() {
           userId: request.user_id,
           route: request.route,
           rider: request.user_name || `Rider #${request.id}`,
+          avatarUrl: request.user_avatar_url || '',
           timing: request.departure_time,
           passengers: request.passengers,
           details: request.details || `${request.passengers} passenger(s)`,
@@ -529,6 +578,41 @@ function App() {
   useEffect(() => {
     loadMyApplications()
   }, [loadMyApplications])
+
+  const loadSharedRideRequests = useCallback(
+    async ({ showError = false } = {}) => {
+      if (!token || !user) {
+        setMySharedRideRequests([])
+        setDriverSharedRideRequests([])
+        return
+      }
+
+      setIsLoadingSharedRideRequests(true)
+      try {
+        const [mine, driverSide] = await Promise.all([
+          sharedRideAPI.getMyRequests(),
+          sharedRideAPI.getDriverRequests().catch(() => []),
+        ])
+        setMySharedRideRequests(mine)
+        setDriverSharedRideRequests(driverSide)
+      } catch (error) {
+        if (showError) {
+          addNotification({
+            type: 'error',
+            title: 'Could not load shared rides',
+            message: error.message || 'Please try again.',
+          })
+        }
+      } finally {
+        setIsLoadingSharedRideRequests(false)
+      }
+    },
+    [addNotification, token, user]
+  )
+
+  useEffect(() => {
+    loadSharedRideRequests()
+  }, [loadSharedRideRequests])
 
   const loadAdminDriverOverview = useCallback(
     async ({ showError = false } = {}) => {
@@ -646,13 +730,21 @@ function App() {
         const secondLabel = message.sender_id === participantIds[1]
           ? (message.sender_name || `User #${message.sender_id}`)
           : (message.recipient_name || `User #${message.recipient_id}`)
+        const firstAvatarUrl = message.sender_id === participantIds[0]
+          ? message.sender_avatar_url
+          : message.recipient_avatar_url
+        const secondAvatarUrl = message.sender_id === participantIds[1]
+          ? message.sender_avatar_url
+          : message.recipient_avatar_url
 
         conversationMap.set(key, {
           key,
           participantAId: participantIds[0],
           participantBId: participantIds[1],
           participantALabel: firstLabel,
+          participantAAvatarUrl: firstAvatarUrl,
           participantBLabel: secondLabel,
+          participantBAvatarUrl: secondAvatarUrl,
           messages: [],
         })
       }
@@ -681,6 +773,7 @@ function App() {
           ...ride,
           driverUserId: driverHistory.driver_user_id,
           driverName: driverHistory.driver_name,
+          driverAvatarUrl: driverHistory.driver_avatar_url,
           driverEmail: driverHistory.driver_email,
         }))
       )
@@ -806,6 +899,90 @@ function App() {
     }
   }
 
+  const refreshDriverListings = async () => {
+    const drivers = await driverAPI.getListings()
+    const mappedDrivers = drivers.map((item) => ({
+      id: item.id,
+      userId: item.user_id,
+      name: item.user_name || `Driver #${item.id}`,
+      avatarUrl: item.user_avatar_url || '',
+      route: item.route,
+      seats: item.available_seats,
+      pricePerSeat: item.price_per_seat || 0,
+      skills: item.skills || '',
+      labels: item.labels || '',
+      ratingAverage: item.rating_average || 0,
+      ratingCount: item.rating_count || 0,
+      rideHistoryCount: item.ride_history_count || 0,
+      departure: item.departure_time,
+      vehicle: item.vehicle,
+      pickupLocation: item.pickup_location || '',
+      notesRaw: item.notes || '',
+      note: [item.pickup_location, item.notes].filter(Boolean).join(' • '),
+    }))
+    setDriverListings(mappedDrivers)
+  }
+
+  const handleCreateSharedRideRequest = async (driver) => {
+    if (!requireAuth()) return
+
+    const draft = sharedRideDrafts[driver.id] || { seats: '1', message: '' }
+    const seatsRequested = Number(draft.seats)
+    if (!seatsRequested || seatsRequested < 1 || seatsRequested > driver.seats) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid seat request',
+        message: `Choose between 1 and ${driver.seats} seat(s).`,
+      })
+      return
+    }
+
+    try {
+      setIsSubmittingSharedRideId(driver.id)
+      await sharedRideAPI.createRequest({
+        driver_listing_id: driver.id,
+        seats_requested: seatsRequested,
+        message: draft.message,
+      })
+      setSharedRideDrafts((prev) => ({ ...prev, [driver.id]: { seats: '1', message: '' } }))
+      addNotification({
+        type: 'success',
+        title: 'Shared ride requested',
+        message: 'Your shared ride request was sent to the driver.',
+      })
+      loadSharedRideRequests()
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not request shared ride',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsSubmittingSharedRideId(null)
+    }
+  }
+
+  const handleUpdateSharedRideRequestStatus = async (requestId, status) => {
+    try {
+      setIsUpdatingSharedRideRequestId(requestId)
+      await sharedRideAPI.updateRequestStatus(requestId, status)
+      addNotification({
+        type: 'success',
+        title: 'Shared ride updated',
+        message: `Shared ride request marked as ${status}.`,
+      })
+      await Promise.all([loadSharedRideRequests(), refreshDriverListings(), loadAdminDriverOverview()])
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not update shared ride',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsUpdatingSharedRideRequestId(null)
+    }
+  }
+
   const handleApplicationSubmit = async (event) => {
     event.preventDefault()
     if (!requireAuth()) return
@@ -832,14 +1009,14 @@ function App() {
       await applicationAPI.submitApplication({
         full_name: applicationForm.fullName,
         email: applicationForm.email,
-        primary_route: applicationForm.primaryRoute,
+        primary_route: 'All routes',
         available_seats: seats,
         notes: applicationForm.notes,
       })
       addNotification({
         type: 'success',
-        title: 'Application submitted',
-        message: 'Your driver application was sent successfully.',
+        title: 'Application saved',
+        message: 'Your driver application was submitted successfully.',
       })
       loadMyApplications()
       loadAdminApplications()
@@ -1055,6 +1232,14 @@ function App() {
 
     const seats = Number(driverForm.seats)
     const pricePerSeat = Number(driverForm.pricePerSeat)
+    if (!driverForm.route.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Missing route',
+        message: 'Route is required.',
+      })
+      return
+    }
     if (!driverForm.vehicle.trim() || !driverForm.departure.trim() || !driverForm.pickupLocation.trim()) {
       addNotification({
         type: 'error',
@@ -1098,6 +1283,7 @@ function App() {
         id: created.id,
         userId: created.user_id,
         name: created.user_name || user?.name || `Driver #${created.id}`,
+        avatarUrl: created.user_avatar_url || user?.avatar_url || '',
         route: created.route,
         seats: created.available_seats,
         pricePerSeat: created.price_per_seat || 0,
@@ -1147,6 +1333,14 @@ function App() {
     if (!requireAuth()) return
 
     const passengers = Number(requestForm.passengers)
+    if (!requestForm.route.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Missing route',
+        message: 'Route is required.',
+      })
+      return
+    }
     if (!requestForm.departure.trim()) {
       addNotification({
         type: 'error',
@@ -1178,6 +1372,7 @@ function App() {
         userId: created.user_id,
         route: created.route,
         rider: created.user_name || user?.name || `Rider #${created.id}`,
+        avatarUrl: created.user_avatar_url || user?.avatar_url || '',
         timing: created.departure_time,
         passengers: created.passengers,
         details: created.details || `${created.passengers} passenger(s)`,
@@ -1310,6 +1505,8 @@ function App() {
           item.id === driverId
             ? {
                 ...item,
+                name: updated.user_name || item.name,
+                avatarUrl: updated.user_avatar_url || item.avatarUrl || '',
                 route: updated.route,
                 vehicle: updated.vehicle,
                 seats: updated.available_seats,
@@ -1422,6 +1619,8 @@ function App() {
           item.id === requestId
             ? {
                 ...item,
+                rider: updated.user_name || item.rider,
+                avatarUrl: updated.user_avatar_url || item.avatarUrl || '',
                 route: updated.route,
                 timing: updated.departure_time,
                 passengers: updated.passengers,
@@ -1450,10 +1649,13 @@ function App() {
 
   const filteredDrivers = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase()
+    const routeFilter = selectedRoute.trim().toLowerCase()
 
     return driverListings.filter((driver) => {
       const routeMatch =
-        selectedRoute === 'All routes' || driver.route === selectedRoute
+        routeFilter.length === 0 ||
+        routeFilter === 'all routes' ||
+        driver.route.toLowerCase().includes(routeFilter)
 
       const keywordMatch =
         keyword.length === 0 ||
@@ -1519,9 +1721,10 @@ function App() {
         byUserId.set(application.user_id, {
           userId: application.user_id,
           name: application.full_name,
+          avatarUrl: application.user_avatar_url || '',
           email: application.email,
           status: application.status,
-          primaryRoute: application.primary_route,
+          primaryRoute: 'All routes',
           seats: application.available_seats,
           submittedAt: application.created_at,
           totalRides: 0,
@@ -1535,6 +1738,7 @@ function App() {
       if (existing) {
         byUserId.set(history.driver_user_id, {
           ...existing,
+          avatarUrl: existing.avatarUrl || history.driver_avatar_url || '',
           totalRides: history.total_rides,
           activeRides: history.active_rides,
         })
@@ -1542,6 +1746,7 @@ function App() {
         byUserId.set(history.driver_user_id, {
           userId: history.driver_user_id,
           name: history.driver_name,
+          avatarUrl: history.driver_avatar_url || '',
           email: history.driver_email,
           status: 'approved',
           primaryRoute: '-',
@@ -1859,6 +2064,11 @@ function App() {
       </section>
 
       <section id="search" className="mx-auto max-w-6xl px-4 pb-10 sm:px-6 lg:px-8">
+        <datalist id="route-options">
+          {routes.slice(1).map((route) => (
+            <option key={`route-option-${route}`} value={route} />
+          ))}
+        </datalist>
         <motion.div
           className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
           {...cardMotion}
@@ -1872,17 +2082,14 @@ function App() {
               <span className="mb-2 block text-sm font-medium text-slate-700">
                 Route focus
               </span>
-              <select
+              <input
+                type="text"
+                list="route-options"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
                 value={selectedRoute}
                 onChange={(event) => setSelectedRoute(event.target.value)}
-              >
-                {routes.map((route) => (
-                  <option key={route} value={route}>
-                    {route}
-                  </option>
-                ))}
-              </select>
+                placeholder="All routes or type any route"
+              />
             </label>
             <label className="md:col-span-2">
               <span className="mb-2 block text-sm font-medium text-slate-700">
@@ -1926,19 +2133,16 @@ function App() {
           <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreateDriverListing}>
             <label>
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Route</span>
-              <select
+              <input
+                type="text"
+                list="route-options"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
                 value={driverForm.route}
                 onChange={(event) =>
                   setDriverForm((prev) => ({ ...prev, route: event.target.value }))
                 }
-              >
-                {routes.slice(1).map((route) => (
-                  <option key={route} value={route}>
-                    {route}
-                  </option>
-                ))}
-              </select>
+                placeholder="e.g. UIUC → Naperville"
+              />
             </label>
             <label>
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Vehicle</span>
@@ -2092,6 +2296,102 @@ function App() {
               </div>
 
               <div className="mt-5 space-y-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-slate-900">Shared Ride Requests</h3>
+                    <button
+                      onClick={() => loadSharedRideRequests({ showError: true })}
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
+                  {isLoadingSharedRideRequests ? (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                      Loading shared ride requests...
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 space-y-3">
+                    {driverSharedRideRequests.length > 0 ? (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-700">Requests for your rides</p>
+                        <div className="mt-2 space-y-2">
+                          {driverSharedRideRequests.map((request) => (
+                            <article key={`driver-shared-${request.id}`} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
+                              <p className="font-medium text-slate-900">{request.driver_route || `Listing #${request.driver_listing_id}`}</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                                <span>Rider:</span>
+                                <AvatarName
+                                  name={request.rider_name || `User #${request.rider_user_id}`}
+                                  avatarUrl={request.rider_avatar_url}
+                                  resolveAvatarUrl={resolveAvatarUrl}
+                                  avatarClassName="h-6 w-6"
+                                  nameClassName="text-xs font-semibold text-slate-700"
+                                  className="gap-2"
+                                />
+                                <span>• {request.seats_requested} seat(s) • {request.driver_departure_time || 'Time TBD'}</span>
+                              </div>
+                              {request.message ? <p className="mt-1 text-xs text-slate-600">“{request.message}”</p> : null}
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getReportStatusClass(request.status === 'approved' ? 'resolved' : request.status === 'rejected' || request.status === 'cancelled' ? 'open' : 'reviewing')}`}>
+                                  {request.status}
+                                </span>
+                                <button
+                                  onClick={() => handleUpdateSharedRideRequestStatus(request.id, 'approved')}
+                                  disabled={isUpdatingSharedRideRequestId === request.id || request.status === 'approved'}
+                                  className="rounded-lg border border-green-300 px-2.5 py-1 text-xs font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-60"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateSharedRideRequestStatus(request.id, 'rejected')}
+                                  disabled={isUpdatingSharedRideRequestId === request.id || request.status === 'rejected'}
+                                  className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                                >
+                                  Reject
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateSharedRideRequestStatus(request.id, 'cancelled')}
+                                  disabled={isUpdatingSharedRideRequestId === request.id || request.status === 'cancelled'}
+                                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">Your shared ride requests</p>
+                      <div className="mt-2 space-y-2">
+                        {mySharedRideRequests.map((request) => (
+                          <article key={`my-shared-${request.id}`} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
+                            <p className="font-medium text-slate-900">{request.driver_route || `Listing #${request.driver_listing_id}`}</p>
+                            <p className="mt-1 text-xs text-slate-600">
+                              {request.seats_requested} seat(s) • {request.driver_departure_time || 'Time TBD'}
+                            </p>
+                            {request.message ? <p className="mt-1 text-xs text-slate-600">“{request.message}”</p> : null}
+                            <span className="mt-2 inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                              {request.status}
+                            </span>
+                          </article>
+                        ))}
+
+                        {!isLoadingSharedRideRequests && mySharedRideRequests.length === 0 && driverSharedRideRequests.length === 0 ? (
+                          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
+                            No shared ride requests yet.
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {isLoadingMessages ? (
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                     Loading messages...
@@ -2119,9 +2419,25 @@ function App() {
                     <div className="mt-3 space-y-3">
                       {adminChatConversations.map((conversation) => (
                         <article key={conversation.key} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-                          <p className="text-xs font-semibold text-slate-800">
-                            {conversation.participantALabel} ↔ {conversation.participantBLabel}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-800">
+                            <AvatarName
+                              name={conversation.participantALabel}
+                              avatarUrl={conversation.participantAAvatarUrl}
+                              resolveAvatarUrl={resolveAvatarUrl}
+                              avatarClassName="h-6 w-6"
+                              nameClassName="text-xs font-semibold text-slate-800"
+                              className="gap-2"
+                            />
+                            <span>↔</span>
+                            <AvatarName
+                              name={conversation.participantBLabel}
+                              avatarUrl={conversation.participantBAvatarUrl}
+                              resolveAvatarUrl={resolveAvatarUrl}
+                              avatarClassName="h-6 w-6"
+                              nameClassName="text-xs font-semibold text-slate-800"
+                              className="gap-2"
+                            />
+                          </div>
                           <div className="mt-2 space-y-2">
                             {conversation.messages.map((message) => (
                               <div
@@ -2132,9 +2448,25 @@ function App() {
                                     : 'bg-indigo-50 text-indigo-900'
                                 }`}
                               >
-                                <p className="font-semibold">
-                                  {message.sender_name || `User #${message.sender_id}`} → {message.recipient_name || `User #${message.recipient_id}`}
-                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <AvatarName
+                                    name={message.sender_name || `User #${message.sender_id}`}
+                                    avatarUrl={message.sender_avatar_url}
+                                    resolveAvatarUrl={resolveAvatarUrl}
+                                    avatarClassName="h-6 w-6"
+                                    nameClassName="text-xs font-semibold text-slate-900"
+                                    className="gap-2"
+                                  />
+                                  <span>→</span>
+                                  <AvatarName
+                                    name={message.recipient_name || `User #${message.recipient_id}`}
+                                    avatarUrl={message.recipient_avatar_url}
+                                    resolveAvatarUrl={resolveAvatarUrl}
+                                    avatarClassName="h-6 w-6"
+                                    nameClassName="text-xs font-semibold text-slate-900"
+                                    className="gap-2"
+                                  />
+                                </div>
                                 <p className="mt-1">{message.body}</p>
                                 <p className="mt-1 text-[10px] text-slate-500">{formatMessageTime(message.created_at)}</p>
                               </div>
@@ -2175,11 +2507,20 @@ function App() {
                               </span>
                             ) : null}
                           </div>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {isInboxView
-                              ? `From ${message.sender_name || `User #${message.sender_id}`}`
-                              : `To ${message.recipient_name || `User #${message.recipient_id}`}`} • ${formatMessageTime(message.created_at)}
-                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                            <span>{isInboxView ? 'From' : 'To'}</span>
+                            <AvatarName
+                              name={isInboxView
+                                ? (message.sender_name || `User #${message.sender_id}`)
+                                : (message.recipient_name || `User #${message.recipient_id}`)}
+                              avatarUrl={isInboxView ? message.sender_avatar_url : message.recipient_avatar_url}
+                              resolveAvatarUrl={resolveAvatarUrl}
+                              avatarClassName="h-6 w-6"
+                              nameClassName="text-xs font-semibold text-slate-700"
+                              className="gap-2"
+                            />
+                            <span>• {formatMessageTime(message.created_at)}</span>
+                          </div>
                         </div>
                         {isInboxView && !message.is_read ? (
                           <button
@@ -2263,20 +2604,6 @@ function App() {
                 />
               </label>
               <label>
-                <span className="mb-1.5 block text-sm font-medium text-slate-700">Primary route</span>
-                <select
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
-                  value={applicationForm.primaryRoute}
-                  onChange={(event) =>
-                    setApplicationForm((prev) => ({ ...prev, primaryRoute: event.target.value }))
-                  }
-                >
-                  {routes.slice(1).map((route) => (
-                    <option key={route}>{route}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
                 <span className="mb-1.5 block text-sm font-medium text-slate-700">Available seats</span>
                 <input
                   type="number"
@@ -2326,10 +2653,15 @@ function App() {
                   <article key={`admin-driver-${driver.userId}`} className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <p className="text-sm font-semibold text-slate-900">{driver.name}</p>
-                        <p className="mt-1 text-xs text-slate-600">{driver.email}</p>
+                        <AvatarName
+                          name={driver.name}
+                          avatarUrl={driver.avatarUrl}
+                          resolveAvatarUrl={resolveAvatarUrl}
+                          subtitle={<p className="truncate">{driver.email}</p>}
+                          avatarClassName="h-10 w-10"
+                        />
                         <p className="mt-1 text-xs text-slate-600">
-                          Route: {driver.primaryRoute} • Seats: {driver.seats}
+                          Coverage: {driver.primaryRoute} • Seats: {driver.seats}
                         </p>
                         <p className="mt-1 text-xs text-slate-600">
                           Total rides: {driver.totalRides} • Active rides: {driver.activeRides}
@@ -2380,7 +2712,13 @@ function App() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-semibold text-slate-900">{driver.name}</h3>
+                  <AvatarName
+                    name={driver.name}
+                    avatarUrl={driver.avatarUrl}
+                    resolveAvatarUrl={resolveAvatarUrl}
+                    avatarClassName="h-11 w-11"
+                    nameClassName="text-lg font-semibold text-slate-900"
+                  />
                   <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600">
                     <MapPin size={15} /> {driver.route}
                   </p>
@@ -2406,19 +2744,16 @@ function App() {
               <div className="mt-4 space-y-2 text-sm text-slate-700">
                 {editingDriverId === driver.id ? (
                   <div className="grid gap-2">
-                    <select
+                    <input
+                      type="text"
+                      list="route-options"
                       value={editingDriverForm.route}
                       onChange={(event) =>
                         setEditingDriverForm((prev) => ({ ...prev, route: event.target.value }))
                       }
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
-                    >
-                      {routes.slice(1).map((route) => (
-                        <option key={route} value={route}>
-                          {route}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="e.g. UIUC → Schaumburg"
+                    />
                     <input
                       type="text"
                       value={editingDriverForm.departure}
@@ -2573,6 +2908,53 @@ function App() {
               {user && user.id !== driver.userId ? (
                 <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
                   <div>
+                    <p className="text-xs font-semibold text-slate-700">Request shared ride</p>
+                    <div className="mt-2 flex flex-col gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <input
+                          type="number"
+                          min="1"
+                          max={driver.seats}
+                          value={sharedRideDrafts[driver.id]?.seats || '1'}
+                          onChange={(event) =>
+                            setSharedRideDrafts((prev) => ({
+                              ...prev,
+                              [driver.id]: {
+                                seats: event.target.value,
+                                message: prev[driver.id]?.message || '',
+                              },
+                            }))
+                          }
+                          className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring sm:w-28"
+                          placeholder="Seats"
+                        />
+                        <button
+                          onClick={() => handleCreateSharedRideRequest(driver)}
+                          disabled={isSubmittingSharedRideId === driver.id || driver.seats < 1}
+                          className="rounded-lg border border-indigo-300 px-3 py-2 text-xs font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-60"
+                        >
+                          {isSubmittingSharedRideId === driver.id ? 'Requesting...' : 'Request Ride Share'}
+                        </button>
+                      </div>
+                      <textarea
+                        rows="2"
+                        value={sharedRideDrafts[driver.id]?.message || ''}
+                        onChange={(event) =>
+                          setSharedRideDrafts((prev) => ({
+                            ...prev,
+                            [driver.id]: {
+                              seats: prev[driver.id]?.seats || '1',
+                              message: event.target.value,
+                            },
+                          }))
+                        }
+                        placeholder="Optional note to the driver"
+                        className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
                     <p className="text-xs font-semibold text-slate-700">Rate this ride experience</p>
                     <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
                       <select
@@ -2726,10 +3108,15 @@ function App() {
                 <div className="mt-2 space-y-2">
                   {approvedDriverDirectory.map((driver) => (
                     <div key={driver.id} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
-                      <p className="font-medium text-slate-900">{driver.full_name}</p>
-                      <p className="mt-1 text-xs text-slate-600">{driver.email}</p>
+                      <AvatarName
+                        name={driver.full_name}
+                        avatarUrl={driver.user_avatar_url}
+                        resolveAvatarUrl={resolveAvatarUrl}
+                        subtitle={<p className="truncate">{driver.email}</p>}
+                        avatarClassName="h-10 w-10"
+                      />
                       <p className="mt-1 text-xs text-slate-600">
-                        Route: {driver.primary_route} • Seats: {driver.available_seats}
+                        Coverage: All routes • Seats: {driver.available_seats}
                       </p>
                     </div>
                   ))}
@@ -2770,7 +3157,19 @@ function App() {
                           </span>
                         </div>
                         <p className="mt-1 text-xs text-slate-600">
-                          Driver: {ride.driverName} ({ride.driverEmail})
+                          <span className="mr-2">Driver:</span>
+                          <span className="inline-flex align-middle">
+                            <AvatarName
+                              name={ride.driverName}
+                              avatarUrl={ride.driverAvatarUrl}
+                              resolveAvatarUrl={resolveAvatarUrl}
+                              subtitle={<p className="truncate">{ride.driverEmail}</p>}
+                              avatarClassName="h-6 w-6"
+                              nameClassName="text-xs font-semibold text-slate-700"
+                              subtitleClassName="text-[11px] text-slate-500"
+                              className="gap-2"
+                            />
+                          </span>
                         </p>
                         <p className="mt-1 text-xs text-slate-600">
                           Seats: {ride.available_seats} • ${Number(ride.price_per_seat || 0).toFixed(2)}/seat • Created: {formatMessageTime(ride.created_at)}
@@ -2790,8 +3189,13 @@ function App() {
                   <article key={driverHistory.driver_user_id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <h4 className="text-sm font-semibold text-slate-900">{driverHistory.driver_name}</h4>
-                        <p className="mt-1 text-xs text-slate-600">{driverHistory.driver_email}</p>
+                        <AvatarName
+                          name={driverHistory.driver_name}
+                          avatarUrl={driverHistory.driver_avatar_url}
+                          resolveAvatarUrl={resolveAvatarUrl}
+                          subtitle={<p className="truncate">{driverHistory.driver_email}</p>}
+                          avatarClassName="h-10 w-10"
+                        />
                         <p className="mt-2 text-xs text-slate-600">
                           {driverHistory.total_rides} ride{driverHistory.total_rides === 1 ? '' : 's'} •
                           {' '}Active: {driverHistory.active_rides} • Inactive: {driverHistory.inactive_rides}
@@ -2892,12 +3296,29 @@ function App() {
                         <p className="text-sm font-semibold text-slate-900">
                           {report.category || 'Issue'} • Report #{report.id}
                         </p>
-                        <p className="mt-1 text-xs text-slate-600">
-                          Reporter: {report.reporter_name || `User #${report.reporter_id}`}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-600">
-                          Against: {report.against_user_name || `User #${report.against_user_id}`} • Listing #{report.driver_listing_id}
-                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                          <span>Reporter:</span>
+                          <AvatarName
+                            name={report.reporter_name || `User #${report.reporter_id}`}
+                            avatarUrl={report.reporter_avatar_url}
+                            resolveAvatarUrl={resolveAvatarUrl}
+                            avatarClassName="h-6 w-6"
+                            nameClassName="text-xs font-semibold text-slate-700"
+                            className="gap-2"
+                          />
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                          <span>Against:</span>
+                          <AvatarName
+                            name={report.against_user_name || `User #${report.against_user_id}`}
+                            avatarUrl={report.against_user_avatar_url}
+                            resolveAvatarUrl={resolveAvatarUrl}
+                            avatarClassName="h-6 w-6"
+                            nameClassName="text-xs font-semibold text-slate-700"
+                            className="gap-2"
+                          />
+                          <span>• Listing #{report.driver_listing_id}</span>
+                        </div>
                         <p className="mt-1 text-xs text-slate-500">Submitted: {formatMessageTime(report.created_at)}</p>
                       </div>
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${getReportStatusClass(report.status || 'open')}`}>
@@ -2955,19 +3376,16 @@ function App() {
           <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreateRiderRequest}>
             <label>
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Route</span>
-              <select
+              <input
+                type="text"
+                list="route-options"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
                 value={requestForm.route}
                 onChange={(event) =>
                   setRequestForm((prev) => ({ ...prev, route: event.target.value }))
                 }
-              >
-                {routes.slice(1).map((route) => (
-                  <option key={route} value={route}>
-                    {route}
-                  </option>
-                ))}
-              </select>
+                placeholder="e.g. UIUC → Evanston"
+              />
             </label>
             <label>
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Departure timing</span>
@@ -3038,24 +3456,29 @@ function App() {
               ) : null}
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
                 {editingRequestId === request.id ? (
-                  <select
+                  <input
+                    type="text"
+                    list="route-options"
                     value={editingRequestForm.route}
                     onChange={(event) =>
                       setEditingRequestForm((prev) => ({ ...prev, route: event.target.value }))
                     }
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-700 outline-none ring-blue-200 transition focus:ring"
-                  >
-                    {routes.slice(1).map((route) => (
-                      <option key={route} value={route}>
-                        {route}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Route"
+                  />
                 ) : (
                   request.route
                 )}
               </p>
-              <h3 className="mt-2 text-lg font-semibold text-slate-900">{request.rider}</h3>
+              <div className="mt-2">
+                <AvatarName
+                  name={request.rider}
+                  avatarUrl={request.avatarUrl}
+                  resolveAvatarUrl={resolveAvatarUrl}
+                  avatarClassName="h-10 w-10"
+                  nameClassName="text-lg font-semibold text-slate-900"
+                />
+              </div>
               <div className="mt-2 space-y-2">
                 {editingRequestId === request.id ? (
                   <>
@@ -3180,9 +3603,9 @@ function App() {
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">{application.primary_route}</p>
+                      <p className="text-sm font-semibold text-slate-900">Driver application</p>
                       <p className="mt-1 text-xs text-slate-600">
-                        Seats: {application.available_seats} • Submitted {formatMessageTime(application.created_at)}
+                        Coverage: All routes • Seats: {application.available_seats} • Submitted {formatMessageTime(application.created_at)}
                       </p>
                     </div>
                     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getApplicationStatusClass(application.status)}`}>
@@ -3233,12 +3656,15 @@ function App() {
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <h4 className="text-sm font-semibold text-slate-900">
-                        {application.full_name}
-                      </h4>
-                      <p className="mt-1 text-xs text-slate-600">{application.email}</p>
+                      <AvatarName
+                        name={application.full_name}
+                        avatarUrl={application.user_avatar_url}
+                        resolveAvatarUrl={resolveAvatarUrl}
+                        subtitle={<p className="truncate">{application.email}</p>}
+                        avatarClassName="h-10 w-10"
+                      />
                       <p className="mt-1 text-xs text-slate-600">
-                        {application.primary_route} • {application.available_seats} seat{application.available_seats === 1 ? '' : 's'}
+                        All routes • {application.available_seats} seat{application.available_seats === 1 ? '' : 's'}
                       </p>
                       {application.notes ? (
                         <p className="mt-2 text-sm text-slate-700">{application.notes}</p>

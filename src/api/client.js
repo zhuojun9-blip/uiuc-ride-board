@@ -226,3 +226,21 @@ export const reportAPI = {
       body: JSON.stringify({ status }),
     }),
 }
+
+export const sharedRideAPI = {
+  createRequest: (data) =>
+    apiCall('/shared-rides/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getMyRequests: () => apiCall('/shared-rides/mine'),
+
+  getDriverRequests: () => apiCall('/shared-rides/driver'),
+
+  updateRequestStatus: (requestId, status) =>
+    apiCall(`/shared-rides/${requestId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
+}

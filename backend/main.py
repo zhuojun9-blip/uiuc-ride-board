@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import logging
 from pathlib import Path
 from database import Base, engine, settings
-from routes import auth, drivers, requests, applications, messages, websocket, reviews, reports
+from routes import auth, drivers, requests, applications, messages, websocket, reviews, reports, shared_rides
 
 logger = logging.getLogger(__name__)
 database_ready = False
@@ -86,6 +86,7 @@ app.include_router(messages.router)
 app.include_router(websocket.router)
 app.include_router(reviews.router)
 app.include_router(reports.router)
+app.include_router(shared_rides.router)
 
 @app.get("/health")
 async def health_check():
