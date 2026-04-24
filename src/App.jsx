@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
   Bus,
   Car,
   CheckCircle2,
   Clock3,
+  LogOut,
   Mail,
   MapPin,
   Phone,
@@ -13,7 +14,144 @@ import {
   User,
 } from 'lucide-react'
 
+function LoginPage({ onLogin }) {
+  const [isSignUp, setIsSignUp] = useState(false)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [error, setError] = useState('')
+
+  const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    setError('')
+
+    if (!email.trim() || !password.trim()) {
+      setError('Email and password are required.')
+      return
+    }
+
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address.')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.')
+      return
+    }
+
+    if (isSignUp && password !== confirmPassword) {
+      setError('Passwords do not match.')
+      return
+    }
+
+    // Call parent onLogin with user data
+    onLogin({ email, name: email.split('@')[0] })
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 px-4">
+      <motion.div
+        className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl sm:p-8"
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.3 }}
+      >
+        <div className="mb-6 flex items-center justify-center gap-2">
+          <Bus size={28} className="text-blue-900" />
+          <h1 className="text-2xl font-semibold text-slate-900">UIUC Ride Board</h1>
+        </div>
+
+        <h2 className="mb-6 text-center text-lg font-semibold text-slate-800">
+          {isSignUp ? 'Create Account' : 'Welcome Back'}
+        </h2>
+
+        {error && (
+          <motion.div
+            className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+          >
+            {error}
+          </motion.div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <label>
+            <span className="mb-1.5 block text-sm font-medium text-slate-700">Email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@illinois.edu"
+              className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+            />
+          </label>
+
+          <label>
+            <span className="mb-1.5 block text-sm font-medium text-slate-700">Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+            />
+          </label>
+
+          {isSignUp && (
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Confirm Password</span>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+          )}
+
+          <button
+            type="submit"
+            className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700"
+          >
+            {isSignUp ? 'Create Account' : 'Sign In'}
+          </button>
+        </form>
+
+        <div className="mt-6 flex items-center gap-2">
+          <div className="h-px flex-1 bg-slate-300" />
+          <span className="text-xs text-slate-500">or</span>
+          <div className="h-px flex-1 bg-slate-300" />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setIsSignUp(!isSignUp)
+            setError('')
+            setEmail('')
+            setPassword('')
+            setConfirmPassword('')
+          }}
+          className="mt-6 w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+        >
+          {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Create one"}
+        </button>
+
+        <p className="mt-6 text-center text-xs text-slate-600">
+          This is a demo. Use any email and password (6+ chars). Forms connect to your backend.
+        </p>
+      </motion.div>
+    </div>
+  )
+}
+
 function App() {
+  const [user, setUser] = useState(null)
   const routes = [
     'All routes',
     'UIUC → ORD',
@@ -24,6 +162,33 @@ function App() {
 
   const [selectedRoute, setSelectedRoute] = useState('All routes')
   const [searchTerm, setSearchTerm] = useState('')
+
+  // Load user from localStorage on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem('rideboard_user')
+    if (savedUser) {
+      try {
+        setUser(JSON.parse(savedUser))
+      } catch (e) {
+        localStorage.removeItem('rideboard_user')
+      }
+    }
+  }, [])
+
+  const handleLogin = (userData) => {
+    setUser(userData)
+    localStorage.setItem('rideboard_user', JSON.stringify(userData))
+  }
+
+  const handleLogout = () => {
+    setUser(null)
+    localStorage.removeItem('rideboard_user')
+  }
+
+  // Show login page if not authenticated
+  if (!user) {
+    return <LoginPage onLogin={handleLogin} />
+  }
 
   const driverListings = [
     {
@@ -115,6 +280,31 @@ function App() {
 
   return (
     <main className="min-h-screen">
+      <header className="sticky top-0 z-50 border-b border-slate-200 bg-white shadow-sm">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-2">
+            <Bus size={24} className="text-blue-600" />
+            <span className="hidden text-lg font-semibold text-slate-900 sm:inline">
+              UIUC Ride Board
+            </span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-sm text-slate-700">
+              <User size={16} />
+              <span className="hidden sm:inline font-medium">{user.name}</span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
+            >
+              <LogOut size={16} />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
       <section className="mx-auto max-w-6xl px-4 pb-10 pt-8 sm:px-6 lg:px-8">
         <motion.div
           className="rounded-3xl bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 p-8 text-white shadow-xl sm:p-12"
