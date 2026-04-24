@@ -330,6 +330,8 @@ function App() {
   const [adminApplications, setAdminApplications] = useState([])
   const [isLoadingAdminApplications, setIsLoadingAdminApplications] = useState(false)
   const [isUpdatingApplicationId, setIsUpdatingApplicationId] = useState(null)
+  const [myApplications, setMyApplications] = useState([])
+  const [isLoadingMyApplications, setIsLoadingMyApplications] = useState(false)
   const { addNotification } = useNotification()
 
   const routes = [
@@ -493,6 +495,36 @@ function App() {
   useEffect(() => {
     loadAdminApplications()
   }, [loadAdminApplications])
+
+  const loadMyApplications = useCallback(
+    async ({ showError = false } = {}) => {
+      if (!token || !user || user.is_admin) {
+        setMyApplications([])
+        return
+      }
+
+      setIsLoadingMyApplications(true)
+      try {
+        const applications = await applicationAPI.getMyApplications()
+        setMyApplications(applications)
+      } catch (error) {
+        if (showError) {
+          addNotification({
+            type: 'error',
+            title: 'Could not load your applications',
+            message: error.message || 'Please try again.',
+          })
+        }
+      } finally {
+        setIsLoadingMyApplications(false)
+      }
+    },
+    [addNotification, token, user]
+  )
+
+  useEffect(() => {
+    loadMyApplications()
+  }, [loadMyApplications])
 
   // Set up WebSocket connection for real-time updates
   const handleWebSocketMessage = (message) => {
@@ -670,6 +702,7 @@ function App() {
         title: 'Application submitted',
         message: 'Your driver application was sent successfully.',
       })
+      loadMyApplications()
       loadAdminApplications()
       setApplicationForm((prev) => ({
         ...prev,
@@ -1099,6 +1132,12 @@ function App() {
       hour: 'numeric',
       minute: '2-digit',
     })
+  }
+
+  const getApplicationStatusClass = (status) => {
+    if (status === 'approved') return 'bg-green-100 text-green-700'
+    if (status === 'rejected') return 'bg-red-100 text-red-700'
+    return 'bg-amber-100 text-amber-700'
   }
 
   const handleMarkMessageRead = async (messageId) => {
@@ -1997,6 +2036,59 @@ function App() {
           </form>
         </motion.div>
 
+        {user && !user.is_admin ? (
+          <motion.div
+            className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+            {...cardMotion}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-slate-900">My Application Status</h3>
+              <button
+                onClick={() => loadMyApplications({ showError: true })}
+                className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {isLoadingMyApplications ? (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                Loading your applications...
+              </div>
+            ) : null}
+
+            <div className="mt-4 space-y-3">
+              {myApplications.map((application) => (
+                <article
+                  key={application.id}
+                  className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{application.primary_route}</p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Seats: {application.available_seats} • Submitted {formatMessageTime(application.created_at)}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getApplicationStatusClass(application.status)}`}>
+                      {application.status}
+                    </span>
+                  </div>
+                  {application.notes ? (
+                    <p className="mt-2 text-sm text-slate-700">{application.notes}</p>
+                  ) : null}
+                </article>
+              ))}
+
+              {!isLoadingMyApplications && myApplications.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
+                  You have not submitted a driver application yet.
+                </div>
+              ) : null}
+            </div>
+          </motion.div>
+        ) : null}
+
         {user?.is_admin ? (
           <motion.div
             className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
@@ -2040,13 +2132,7 @@ function App() {
 
                     <div className="flex flex-col items-start gap-2 sm:items-end">
                       <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${
-                          application.status === 'approved'
-                            ? 'bg-green-100 text-green-700'
-                            : application.status === 'rejected'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-amber-100 text-amber-700'
-                        }`}
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getApplicationStatusClass(application.status)}`}
                       >
                         {application.status}
                       </span>
