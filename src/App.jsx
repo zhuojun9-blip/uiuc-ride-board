@@ -18,68 +18,8 @@ import { useNotification } from './providers/NotificationProvider'
 import { applicationAPI, authAPI, driverAPI, messageAPI, riderAPI } from './api/client'
 import { useWebSocket } from './hooks/useWebSocket'
 
-const sampleDriverListings = [
-  {
-    id: 1,
-    name: 'Aarav S.',
-    route: 'UIUC → ORD',
-    seats: 3,
-    departure: 'Fri, 4:30 PM',
-    vehicle: 'Toyota Camry',
-    note: 'Usually leaves from Green Street near Illini Union.',
-  },
-  {
-    id: 2,
-    name: 'Maya L.',
-    route: 'ORD → UIUC',
-    seats: 2,
-    departure: 'Sun, 7:00 PM',
-    vehicle: 'Honda CR-V',
-    note: 'Returning after weekend flight arrivals.',
-  },
-  {
-    id: 3,
-    name: 'Daniel K.',
-    route: 'UIUC → Midway',
-    seats: 1,
-    departure: 'Sat, 9:15 AM',
-    vehicle: 'Nissan Altima',
-    note: 'Can share luggage space for one checked bag.',
-  },
-  {
-    id: 4,
-    name: 'Priya R.',
-    route: 'UIUC → Downtown Chicago',
-    seats: 2,
-    departure: 'Fri, 5:45 PM',
-    vehicle: 'Mazda CX-5',
-    note: 'Drop-off near Union Station and West Loop.',
-  },
-]
-
-const sampleRiderRequests = [
-  {
-    id: 1,
-    route: 'UIUC → ORD',
-    rider: 'Graduate student',
-    timing: 'This Friday before 6 PM',
-    details: 'One rider + one carry-on. Flexible pickup near campus.',
-  },
-  {
-    id: 2,
-    route: 'ORD → UIUC',
-    rider: 'Undergrad student',
-    timing: 'Sunday evening',
-    details: 'Lands at 5:40 PM, looking for shared ride to Champaign.',
-  },
-  {
-    id: 3,
-    route: 'UIUC → Downtown Chicago',
-    rider: 'Visiting scholar',
-    timing: 'Next Wednesday morning',
-    details: 'Needs drop-off near River North, light luggage only.',
-  },
-]
+const sampleDriverListings = []
+const sampleRiderRequests = []
 
 function LoginModal({ isOpen, onClose, onLogin }) {
   const [isSignUp, setIsSignUp] = useState(false)
@@ -444,14 +384,14 @@ function App() {
 
         setDriverListings(mappedDrivers)
         setRiderRequests(mappedRequests)
-      } catch {
+      } catch (error) {
         if (!isMounted) return
         setDriverListings(sampleDriverListings)
         setRiderRequests(sampleRiderRequests)
         addNotification({
-          type: 'warning',
-          title: 'Using sample data',
-          message: 'Backend data is unavailable right now.',
+          type: 'error',
+          title: 'Could not load marketplace data',
+          message: error.message || 'Please refresh and try again.',
         })
       } finally {
         if (isMounted) {
@@ -528,9 +468,6 @@ function App() {
 
   // Set up WebSocket connection for real-time updates
   const handleWebSocketMessage = (message) => {
-    // Handle any direct messages from backend
-    console.log('WebSocket message:', message)
-
     if (message.type === 'message_sent' || message.type === 'contact_sent' || message.type === 'offer_sent') {
       loadMessages()
     }
@@ -557,10 +494,6 @@ function App() {
         title: 'Ride Offered',
         message: `A driver offered a ride for ${notification.data.route}`,
       })
-    } else if (notification.type === 'user_online') {
-      console.log(`User ${notification.user_id} is online`)
-    } else if (notification.type === 'user_offline') {
-      console.log(`User ${notification.user_id} went offline`)
     }
   }
 

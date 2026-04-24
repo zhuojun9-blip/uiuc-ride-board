@@ -21,7 +21,6 @@ export const useWebSocket = (token, onMessage, onNotification) => {
         ws.current = new WebSocket(wsUrl)
 
         ws.current.onopen = () => {
-          console.log('WebSocket connected')
           setConnectionStatus('connected')
           reconnectAttempts.current = 0
           // Send initial ping to keep connection alive
@@ -54,14 +53,12 @@ export const useWebSocket = (token, onMessage, onNotification) => {
         }
 
         ws.current.onclose = () => {
-          console.log('WebSocket disconnected')
           setConnectionStatus('disconnected')
 
           // Attempt to reconnect
           if (reconnectAttempts.current < maxReconnectAttempts) {
             reconnectAttempts.current += 1
             const delay = 1000 * Math.pow(2, reconnectAttempts.current - 1)
-            console.log(`Reconnecting in ${delay}ms...`)
             setTimeout(connectWebSocket, delay)
           }
         }

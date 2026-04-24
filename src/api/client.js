@@ -11,10 +11,15 @@ const apiCall = async (endpoint, options = {}) => {
     headers.Authorization = `Bearer ${token}`
   }
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  })
+  let response
+  try {
+    response = await fetch(`${BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    })
+  } catch {
+    throw new Error('Network error: could not reach the backend service.')
+  }
 
   // Handle 401 unauthorized
   if (response.status === 401) {
@@ -24,8 +29,9 @@ const apiCall = async (endpoint, options = {}) => {
   }
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.detail || `API error: ${response.statusText}`)
+    const error = await response.json().catch(() => null)
+    const fallbackMessage = `API error (${response.status}): ${response.statusText}`
+    throw new Error(error?.detail || error?.message || fallbackMessage)
   }
 
   return response.json()
