@@ -32,6 +32,8 @@ app = FastAPI(
     version="1.0.0"
 )
 
+frontend_origin = settings.FRONTEND_URL.rstrip("/")
+
 
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -41,8 +43,8 @@ async def startup_event() -> None:
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"],
-    allow_origin_regex=r"https://.*\\.netlify\\.app",
+    allow_origins=[frontend_origin, "http://localhost:5173", "http://localhost:3000"],
+    allow_origin_regex=r"https://.*\.netlify\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
