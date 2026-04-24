@@ -7,9 +7,10 @@ from database import Base, engine, settings
 from routes import auth, drivers, requests, applications, messages, websocket
 
 logger = logging.getLogger(__name__)
+database_ready = False
 
 
-def initialize_database() -> None:
+def initialize_database() -> bool:
     try:
         Base.metadata.create_all(bind=engine)
 
@@ -18,22 +19,24 @@ def initialize_database() -> None:
                 connection.execute(
                     text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE")
                 )
+        return True
     except SQLAlchemyError as error:
         logger.exception(
             "Database initialization failed. Check DATABASE_URL and database availability."
         )
-        raise RuntimeError(
-            "Database initialization failed. Set DATABASE_URL to a reachable PostgreSQL database."
-        ) from error
-
-
-initialize_database()
+        return False
 
 app = FastAPI(
     title="UIUC Ride Board API",
     description="Backend API for UIUC intercity ride-board platform",
     version="1.0.0"
 )
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    global database_ready
+    database_ready = initialize_database()
 
 # CORS Configuration
 app.add_middleware(
@@ -55,7 +58,12 @@ app.include_router(websocket.router)
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "message": "UIUC Ride Board API is running"}
+    if database_ready:
+        return {"status": "ok", "message": "UIUC Ride Board API is running"}
+    return {
+        "status": "degraded",
+        "message": "API is running but database initialization failed. Check DATABASE_URL."
+    }
 
 @app.get("/")
 async def root():
