@@ -1575,7 +1575,7 @@ function App() {
     <main className="min-h-screen">
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <div className="flex items-center gap-2">
               <Bus size={24} className="text-blue-600" />
               <span className="hidden text-lg font-semibold text-slate-900 sm:inline">
@@ -1583,20 +1583,21 @@ function App() {
               </span>
             </div>
 
-            <div className="hidden md:flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
               <button
                 title="Message Box"
                 aria-label="Message Box"
                 onClick={() =>
                   setActiveUtilityPanel((prev) => (prev === 'messages' ? null : 'messages'))
                 }
-                className={`inline-flex items-center justify-center rounded-lg border p-2 transition ${
+                className={`inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
                   activeUtilityPanel === 'messages'
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
                     : 'border-slate-300 text-slate-700 hover:bg-slate-100'
                 }`}
               >
                 <MessageSquare size={16} />
+                <span className="text-[10px] leading-none">Msg</span>
               </button>
 
               <button
@@ -1605,13 +1606,14 @@ function App() {
                 onClick={() =>
                   setActiveUtilityPanel((prev) => (prev === 'application' ? null : 'application'))
                 }
-                className={`inline-flex items-center justify-center rounded-lg border p-2 transition ${
+                className={`inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
                   activeUtilityPanel === 'application'
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
                     : 'border-slate-300 text-slate-700 hover:bg-slate-100'
                 }`}
               >
                 <User size={16} />
+                <span className="text-[10px] leading-none">Apply</span>
               </button>
 
               <button
@@ -1620,13 +1622,14 @@ function App() {
                 onClick={() =>
                   setActiveUtilityPanel((prev) => (prev === 'listing' ? null : 'listing'))
                 }
-                className={`inline-flex items-center justify-center rounded-lg border p-2 transition ${
+                className={`inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
                   activeUtilityPanel === 'listing'
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
                     : 'border-slate-300 text-slate-700 hover:bg-slate-100'
                 }`}
               >
                 <Car size={16} />
+                <span className="text-[10px] leading-none">Post</span>
               </button>
             </div>
           </div>
