@@ -4,7 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 from database import Base, engine, settings
-from routes import auth, drivers, requests, applications, messages, websocket
+from routes import auth, drivers, requests, applications, messages, websocket, reviews, reports
 
 logger = logging.getLogger(__name__)
 database_ready = False
@@ -21,6 +21,12 @@ def initialize_database() -> bool:
                 )
                 connection.execute(
                     text("ALTER TABLE drivers ADD COLUMN IF NOT EXISTS price_per_seat DOUBLE PRECISION DEFAULT 0")
+                )
+                connection.execute(
+                    text("ALTER TABLE drivers ADD COLUMN IF NOT EXISTS skills TEXT")
+                )
+                connection.execute(
+                    text("ALTER TABLE drivers ADD COLUMN IF NOT EXISTS labels TEXT")
                 )
         return True
     except SQLAlchemyError as error:
@@ -69,6 +75,8 @@ app.include_router(requests.router)
 app.include_router(applications.router)
 app.include_router(messages.router)
 app.include_router(websocket.router)
+app.include_router(reviews.router)
+app.include_router(reports.router)
 
 @app.get("/health")
 async def health_check():

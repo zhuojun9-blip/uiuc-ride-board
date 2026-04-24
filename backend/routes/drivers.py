@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from database import get_db
-from models import Driver, User
+from models import Driver, RideReview, User
 import schemas
 from auth import get_current_user
 
@@ -11,6 +11,13 @@ router = APIRouter(prefix="/drivers", tags=["drivers"])
 
 def serialize_driver(driver: Driver, db: Session):
     driver_owner = db.query(User).filter(User.id == driver.user_id).first()
+    reviews = db.query(RideReview).filter(RideReview.driver_user_id == driver.user_id).all()
+    rating_count = len(reviews)
+    rating_average = (
+        sum(review.rating for review in reviews) / rating_count if rating_count else 0
+    )
+    ride_history_count = db.query(Driver).filter(Driver.user_id == driver.user_id).count()
+
     return schemas.DriverResponse(
         id=driver.id,
         user_id=driver.user_id,
@@ -21,7 +28,12 @@ def serialize_driver(driver: Driver, db: Session):
         departure_time=driver.departure_time,
         price_per_seat=driver.price_per_seat,
         pickup_location=driver.pickup_location,
+        skills=driver.skills,
+        labels=driver.labels,
         notes=driver.notes,
+        rating_average=rating_average,
+        rating_count=rating_count,
+        ride_history_count=ride_history_count,
         is_active=driver.is_active,
         created_at=driver.created_at,
         updated_at=driver.updated_at,
@@ -47,6 +59,8 @@ def build_driver_history_response(driver_user: User, rides: list[Driver]):
             price_per_seat=ride.price_per_seat or 0,
             estimated_total_cost=(ride.price_per_seat or 0) * (ride.available_seats or 0),
             pickup_location=ride.pickup_location,
+            skills=ride.skills,
+            labels=ride.labels,
             notes=ride.notes,
             is_active=ride.is_active,
             created_at=ride.created_at,

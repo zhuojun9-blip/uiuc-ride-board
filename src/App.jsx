@@ -15,7 +15,7 @@ import {
   MessageSquare,
 } from 'lucide-react'
 import { useNotification } from './providers/NotificationProvider'
-import { applicationAPI, authAPI, driverAPI, messageAPI, riderAPI } from './api/client'
+import { applicationAPI, authAPI, driverAPI, messageAPI, reportAPI, reviewAPI, riderAPI } from './api/client'
 import { useWebSocket } from './hooks/useWebSocket'
 
 const sampleDriverListings = []
@@ -226,6 +226,8 @@ function App() {
     vehicle: '',
     seats: '2',
     pricePerSeat: '0',
+    skills: '',
+    labels: '',
     departure: '',
     pickupLocation: '',
     notes: '',
@@ -242,6 +244,8 @@ function App() {
     vehicle: '',
     seats: '1',
     pricePerSeat: '0',
+    skills: '',
+    labels: '',
     departure: '',
     pickupLocation: '',
     notes: '',
@@ -281,6 +285,13 @@ function App() {
   const [isLoadingAdminDriverOverview, setIsLoadingAdminDriverOverview] = useState(false)
   const [expandedDriverHistoryId, setExpandedDriverHistoryId] = useState(null)
   const [isDeletingAdminRideId, setIsDeletingAdminRideId] = useState(null)
+  const [ratingDrafts, setRatingDrafts] = useState({})
+  const [isSubmittingRatingId, setIsSubmittingRatingId] = useState(null)
+  const [reportDrafts, setReportDrafts] = useState({})
+  const [isSubmittingReportId, setIsSubmittingReportId] = useState(null)
+  const [adminReports, setAdminReports] = useState([])
+  const [isLoadingAdminReports, setIsLoadingAdminReports] = useState(false)
+  const [isUpdatingAdminReportId, setIsUpdatingAdminReportId] = useState(null)
   const { addNotification } = useNotification()
 
   const routes = [
@@ -405,6 +416,11 @@ function App() {
           route: driver.route,
           seats: driver.available_seats,
           pricePerSeat: driver.price_per_seat || 0,
+          skills: driver.skills || '',
+          labels: driver.labels || '',
+          ratingAverage: driver.rating_average || 0,
+          ratingCount: driver.rating_count || 0,
+          rideHistoryCount: driver.ride_history_count || 0,
           departure: driver.departure_time,
           vehicle: driver.vehicle,
           pickupLocation: driver.pickup_location || '',
@@ -535,6 +551,36 @@ function App() {
   useEffect(() => {
     loadAdminDriverOverview()
   }, [loadAdminDriverOverview])
+
+  const loadAdminReports = useCallback(
+    async ({ showError = false } = {}) => {
+      if (!token || !user?.is_admin) {
+        setAdminReports([])
+        return
+      }
+
+      setIsLoadingAdminReports(true)
+      try {
+        const reports = await reportAPI.getAdminReports()
+        setAdminReports(reports)
+      } catch (error) {
+        if (showError) {
+          addNotification({
+            type: 'error',
+            title: 'Could not load reports',
+            message: error.message || 'Please try again.',
+          })
+        }
+      } finally {
+        setIsLoadingAdminReports(false)
+      }
+    },
+    [addNotification, token, user?.is_admin]
+  )
+
+  useEffect(() => {
+    loadAdminReports()
+  }, [loadAdminReports])
 
   // Set up WebSocket connection for real-time updates
   const handleWebSocketMessage = (message) => {
@@ -844,6 +890,130 @@ function App() {
     }
   }
 
+  const handleSubmitRideRating = async (driver) => {
+    if (!requireAuth()) return
+
+    const draft = ratingDrafts[driver.id] || { rating: '5', comment: '' }
+    const rating = Number(draft.rating)
+    if (!rating || rating < 1 || rating > 5) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid rating',
+        message: 'Please choose a rating between 1 and 5.',
+      })
+      return
+    }
+
+    try {
+      setIsSubmittingRatingId(driver.id)
+      await reviewAPI.createReview({
+        driver_user_id: driver.userId,
+        driver_listing_id: driver.id,
+        rating,
+        comment: draft.comment,
+      })
+      setRatingDrafts((prev) => ({ ...prev, [driver.id]: { rating: '5', comment: '' } }))
+      addNotification({
+        type: 'success',
+        title: 'Rating submitted',
+        message: 'Thanks for rating this ride experience.',
+      })
+
+      const drivers = await driverAPI.getListings()
+      const mappedDrivers = drivers.map((item) => ({
+        id: item.id,
+        userId: item.user_id,
+        name: item.user_name || `Driver #${item.id}`,
+        route: item.route,
+        seats: item.available_seats,
+        pricePerSeat: item.price_per_seat || 0,
+        skills: item.skills || '',
+        labels: item.labels || '',
+        ratingAverage: item.rating_average || 0,
+        ratingCount: item.rating_count || 0,
+        rideHistoryCount: item.ride_history_count || 0,
+        departure: item.departure_time,
+        vehicle: item.vehicle,
+        pickupLocation: item.pickup_location || '',
+        notesRaw: item.notes || '',
+        note: [item.pickup_location, item.notes].filter(Boolean).join(' • '),
+      }))
+      setDriverListings(mappedDrivers)
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not submit rating',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsSubmittingRatingId(null)
+    }
+  }
+
+  const handleSubmitRideReport = async (driver) => {
+    if (!requireAuth()) return
+
+    const draft = reportDrafts[driver.id] || { category: 'safety', details: '' }
+    if (!draft.details.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Report details required',
+        message: 'Please describe what happened.',
+      })
+      return
+    }
+
+    try {
+      setIsSubmittingReportId(driver.id)
+      await reportAPI.createReport({
+        against_user_id: driver.userId,
+        driver_listing_id: driver.id,
+        category: draft.category,
+        details: draft.details,
+      })
+      setReportDrafts((prev) => ({ ...prev, [driver.id]: { category: 'safety', details: '' } }))
+      addNotification({
+        type: 'success',
+        title: 'Report sent to admin',
+        message: 'Your report has been submitted for admin review.',
+      })
+      loadAdminReports()
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not submit report',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsSubmittingReportId(null)
+    }
+  }
+
+  const handleUpdateReportStatus = async (reportId, status) => {
+    try {
+      setIsUpdatingAdminReportId(reportId)
+      const updated = await reportAPI.updateReportStatus(reportId, status)
+      setAdminReports((prev) =>
+        prev.map((report) =>
+          report.id === reportId ? { ...report, status: updated.status } : report
+        )
+      )
+      addNotification({
+        type: 'success',
+        title: 'Report updated',
+        message: `Report marked as ${updated.status}.`,
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: 'Could not update report',
+        message: error.message || 'Please try again.',
+      })
+    } finally {
+      setIsUpdatingAdminReportId(null)
+    }
+  }
+
   const handleCreateDriverListing = async (event) => {
     event.preventDefault()
     if (!requireAuth()) return
@@ -883,6 +1053,8 @@ function App() {
         available_seats: seats,
         departure_time: driverForm.departure,
         price_per_seat: pricePerSeat,
+        skills: driverForm.skills,
+        labels: driverForm.labels,
         pickup_location: driverForm.pickupLocation,
         notes: driverForm.notes,
       })
@@ -894,6 +1066,11 @@ function App() {
         route: created.route,
         seats: created.available_seats,
         pricePerSeat: created.price_per_seat || 0,
+        skills: created.skills || '',
+        labels: created.labels || '',
+        ratingAverage: created.rating_average || 0,
+        ratingCount: created.rating_count || 0,
+        rideHistoryCount: created.ride_history_count || 0,
         departure: created.departure_time,
         vehicle: created.vehicle,
         pickupLocation: created.pickup_location || '',
@@ -907,6 +1084,8 @@ function App() {
         vehicle: '',
         seats: '2',
         pricePerSeat: '0',
+        skills: '',
+        labels: '',
         departure: '',
         pickupLocation: '',
         notes: '',
@@ -1027,6 +1206,8 @@ function App() {
       vehicle: driver.vehicle,
       seats: String(driver.seats),
       pricePerSeat: String(driver.pricePerSeat || 0),
+      skills: driver.skills || '',
+      labels: driver.labels || '',
       departure: driver.departure,
       pickupLocation: driver.pickupLocation || '',
       notes: driver.notesRaw || '',
@@ -1083,6 +1264,8 @@ function App() {
         available_seats: seats,
         departure_time: editingDriverForm.departure,
         price_per_seat: pricePerSeat,
+        skills: editingDriverForm.skills,
+        labels: editingDriverForm.labels,
         pickup_location: editingDriverForm.pickupLocation,
         notes: editingDriverForm.notes,
       })
@@ -1096,6 +1279,11 @@ function App() {
                 vehicle: updated.vehicle,
                 seats: updated.available_seats,
                 pricePerSeat: updated.price_per_seat || 0,
+                skills: updated.skills || '',
+                labels: updated.labels || '',
+                ratingAverage: updated.rating_average || 0,
+                ratingCount: updated.rating_count || 0,
+                rideHistoryCount: updated.ride_history_count || 0,
                 departure: updated.departure_time,
                 pickupLocation: updated.pickup_location || '',
                 notesRaw: updated.notes || '',
@@ -1265,6 +1453,12 @@ function App() {
   const getApplicationStatusClass = (status) => {
     if (status === 'approved') return 'bg-green-100 text-green-700'
     if (status === 'rejected') return 'bg-red-100 text-red-700'
+    return 'bg-amber-100 text-amber-700'
+  }
+
+  const getReportStatusClass = (status) => {
+    if (status === 'resolved') return 'bg-green-100 text-green-700'
+    if (status === 'reviewing') return 'bg-blue-100 text-blue-700'
     return 'bg-amber-100 text-amber-700'
   }
 
@@ -1544,6 +1738,30 @@ function App() {
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
               />
             </label>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Characteristics / Skills</span>
+              <input
+                type="text"
+                value={driverForm.skills}
+                onChange={(event) =>
+                  setDriverForm((prev) => ({ ...prev, skills: event.target.value }))
+                }
+                placeholder="Speaks Mandarin, Non-smoker"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
+            <label>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Driver Labels</span>
+              <input
+                type="text"
+                value={driverForm.labels}
+                onChange={(event) =>
+                  setDriverForm((prev) => ({ ...prev, labels: event.target.value }))
+                }
+                placeholder="On-time, Quiet ride, Pet-friendly"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+              />
+            </label>
             <label className="md:col-span-2">
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Pickup location</span>
               <input
@@ -1609,6 +1827,9 @@ function App() {
                   <h3 className="text-lg font-semibold text-slate-900">{driver.name}</h3>
                   <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600">
                     <MapPin size={15} /> {driver.route}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    ⭐ {Number(driver.ratingAverage || 0).toFixed(1)} ({driver.ratingCount || 0} rating{(driver.ratingCount || 0) === 1 ? '' : 's'}) • {driver.rideHistoryCount || 0} rides in history
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
@@ -1684,6 +1905,24 @@ function App() {
                     />
                     <input
                       type="text"
+                      value={editingDriverForm.skills}
+                      onChange={(event) =>
+                        setEditingDriverForm((prev) => ({ ...prev, skills: event.target.value }))
+                      }
+                      placeholder="Skills / characteristics"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                    <input
+                      type="text"
+                      value={editingDriverForm.labels}
+                      onChange={(event) =>
+                        setEditingDriverForm((prev) => ({ ...prev, labels: event.target.value }))
+                      }
+                      placeholder="Labels"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                    />
+                    <input
+                      type="text"
                       value={editingDriverForm.pickupLocation}
                       onChange={(event) =>
                         setEditingDriverForm((prev) => ({ ...prev, pickupLocation: event.target.value }))
@@ -1712,6 +1951,8 @@ function App() {
                     <p className="flex items-center gap-2">
                       <span className="font-medium">Cost:</span> ${Number(driver.pricePerSeat || 0).toFixed(2)} per seat
                     </p>
+                    {driver.skills ? <p>Skills: {driver.skills}</p> : null}
+                    {driver.labels ? <p>Labels: {driver.labels}</p> : null}
                     <p>{driver.note}</p>
                   </>
                 )}
@@ -1772,6 +2013,103 @@ function App() {
                   </button>
                 ) : null}
               </div>
+
+              {user && user.id !== driver.userId ? (
+                <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700">Rate this ride experience</p>
+                    <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <select
+                        value={ratingDrafts[driver.id]?.rating || '5'}
+                        onChange={(event) =>
+                          setRatingDrafts((prev) => ({
+                            ...prev,
+                            [driver.id]: {
+                              rating: event.target.value,
+                              comment: prev[driver.id]?.comment || '',
+                            },
+                          }))
+                        }
+                        className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                      >
+                        <option value="5">5 - Excellent</option>
+                        <option value="4">4 - Good</option>
+                        <option value="3">3 - Okay</option>
+                        <option value="2">2 - Poor</option>
+                        <option value="1">1 - Bad</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={ratingDrafts[driver.id]?.comment || ''}
+                        onChange={(event) =>
+                          setRatingDrafts((prev) => ({
+                            ...prev,
+                            [driver.id]: {
+                              rating: prev[driver.id]?.rating || '5',
+                              comment: event.target.value,
+                            },
+                          }))
+                        }
+                        placeholder="Optional comment"
+                        className="flex-1 rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                      />
+                      <button
+                        onClick={() => handleSubmitRideRating(driver)}
+                        disabled={isSubmittingRatingId === driver.id}
+                        className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60"
+                      >
+                        {isSubmittingRatingId === driver.id ? 'Submitting...' : 'Submit Rating'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700">Report to admin</p>
+                    <div className="mt-2 space-y-2">
+                      <select
+                        value={reportDrafts[driver.id]?.category || 'safety'}
+                        onChange={(event) =>
+                          setReportDrafts((prev) => ({
+                            ...prev,
+                            [driver.id]: {
+                              category: event.target.value,
+                              details: prev[driver.id]?.details || '',
+                            },
+                          }))
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                      >
+                        <option value="safety">Safety concern</option>
+                        <option value="behavior">Behavior issue</option>
+                        <option value="payment">Payment dispute</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <textarea
+                        rows="2"
+                        value={reportDrafts[driver.id]?.details || ''}
+                        onChange={(event) =>
+                          setReportDrafts((prev) => ({
+                            ...prev,
+                            [driver.id]: {
+                              category: prev[driver.id]?.category || 'safety',
+                              details: event.target.value,
+                            },
+                          }))
+                        }
+                        placeholder="Describe the issue for admins"
+                        className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                      />
+                      <button
+                        onClick={() => handleSubmitRideReport(driver)}
+                        disabled={isSubmittingReportId === driver.id}
+                        className="rounded-lg border border-red-300 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                      >
+                        {isSubmittingReportId === driver.id ? 'Sending...' : 'Send Report'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </motion.article>
           ))}
         </div>
@@ -1783,128 +2121,204 @@ function App() {
         ) : null}
 
         {user?.is_admin ? (
-          <motion.div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" {...cardMotion}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold text-slate-900">Admin Ride Cost & Driver History</h3>
-              <button
-                onClick={() => loadAdminDriverOverview({ showError: true })}
-                className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-              >
-                Refresh
-              </button>
-            </div>
-
-            {isLoadingAdminDriverOverview ? (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                Loading driver history...
-              </div>
-            ) : null}
-
-            <div className="mt-4 space-y-3">
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <h4 className="text-sm font-semibold text-slate-900">Ride Cost Ledger</h4>
-                <p className="mt-1 text-xs text-slate-600">
-                  Complete list of rides and estimated costs.
-                </p>
-
-                <div className="mt-3 space-y-2">
-                  {adminRideLedger.map((ride) => (
-                    <div
-                      key={`ledger-${ride.id}`}
-                      className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-sm text-slate-700"
-                    >
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="font-medium text-slate-900">
-                          {ride.route} • {ride.departure_time}
-                        </p>
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                          ${Number(ride.estimated_total_cost || 0).toFixed(2)} total
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-600">
-                        Driver: {ride.driverName} ({ride.driverEmail})
-                      </p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        Seats: {ride.available_seats} • ${Number(ride.price_per_seat || 0).toFixed(2)}/seat • Created: {formatMessageTime(ride.created_at)}
-                      </p>
-                    </div>
-                  ))}
-
-                  {!isLoadingAdminDriverOverview && adminRideLedger.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">
-                      No rides available in the cost ledger yet.
-                    </div>
-                  ) : null}
-                </div>
+          <>
+            <motion.div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" {...cardMotion}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-slate-900">Admin Ride Cost & Driver History</h3>
+                <button
+                  onClick={() => loadAdminDriverOverview({ showError: true })}
+                  className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Refresh
+                </button>
               </div>
 
-              {adminDriverOverview.map((driverHistory) => (
-                <article key={driverHistory.driver_user_id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-900">{driverHistory.driver_name}</h4>
-                      <p className="mt-1 text-xs text-slate-600">{driverHistory.driver_email}</p>
-                      <p className="mt-2 text-xs text-slate-600">
-                        {driverHistory.total_rides} ride{driverHistory.total_rides === 1 ? '' : 's'} •
-                        {' '}Active: {driverHistory.active_rides} • Inactive: {driverHistory.inactive_rides}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-slate-600">Total estimated cost</p>
-                      <p className="text-sm font-semibold text-slate-900">${Number(driverHistory.total_estimated_cost || 0).toFixed(2)}</p>
-                      <p className="mt-1 text-xs text-slate-600">Avg ${Number(driverHistory.average_price_per_seat || 0).toFixed(2)}/seat</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <button
-                      onClick={() =>
-                        setExpandedDriverHistoryId((prev) =>
-                          prev === driverHistory.driver_user_id ? null : driverHistory.driver_user_id
-                        )
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      {expandedDriverHistoryId === driverHistory.driver_user_id ? 'Hide history' : 'View history'}
-                    </button>
-                  </div>
-
-                  {expandedDriverHistoryId === driverHistory.driver_user_id ? (
-                    <div className="mt-3 space-y-2">
-                      {driverHistory.rides.map((ride) => (
-                        <div key={ride.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                            <p className="font-medium text-slate-900">{ride.route} • {ride.departure_time}</p>
-                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ride.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
-                              {ride.is_active ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-xs text-slate-600">Vehicle: {ride.vehicle} • Seats: {ride.available_seats}</p>
-                          <p className="mt-1 text-xs text-slate-600">Cost: ${Number(ride.price_per_seat || 0).toFixed(2)}/seat • Ride total: ${Number(ride.estimated_total_cost || 0).toFixed(2)}</p>
-                          <p className="mt-1 text-xs text-slate-500">Created: {formatMessageTime(ride.created_at)}</p>
-                          <div className="mt-2">
-                            <button
-                              onClick={() => handleAdminDeleteRide(ride.id)}
-                              disabled={isDeletingAdminRideId === ride.id}
-                              className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
-                            >
-                              {isDeletingAdminRideId === ride.id ? 'Deleting...' : 'Delete ride'}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </article>
-              ))}
-
-              {!isLoadingAdminDriverOverview && adminDriverOverview.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
-                  No driver history is available yet.
+              {isLoadingAdminDriverOverview ? (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  Loading driver history...
                 </div>
               ) : null}
-            </div>
-          </motion.div>
+
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <h4 className="text-sm font-semibold text-slate-900">Ride Cost Ledger</h4>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Complete list of rides and estimated costs.
+                  </p>
+
+                  <div className="mt-3 space-y-2">
+                    {adminRideLedger.map((ride) => (
+                      <div
+                        key={`ledger-${ride.id}`}
+                        className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-sm text-slate-700"
+                      >
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="font-medium text-slate-900">
+                            {ride.route} • {ride.departure_time}
+                          </p>
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                            ${Number(ride.estimated_total_cost || 0).toFixed(2)} total
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Driver: {ride.driverName} ({ride.driverEmail})
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Seats: {ride.available_seats} • ${Number(ride.price_per_seat || 0).toFixed(2)}/seat • Created: {formatMessageTime(ride.created_at)}
+                        </p>
+                      </div>
+                    ))}
+
+                    {!isLoadingAdminDriverOverview && adminRideLedger.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">
+                        No rides available in the cost ledger yet.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                {adminDriverOverview.map((driverHistory) => (
+                  <article key={driverHistory.driver_user_id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900">{driverHistory.driver_name}</h4>
+                        <p className="mt-1 text-xs text-slate-600">{driverHistory.driver_email}</p>
+                        <p className="mt-2 text-xs text-slate-600">
+                          {driverHistory.total_rides} ride{driverHistory.total_rides === 1 ? '' : 's'} •
+                          {' '}Active: {driverHistory.active_rides} • Inactive: {driverHistory.inactive_rides}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-600">Total estimated cost</p>
+                        <p className="text-sm font-semibold text-slate-900">${Number(driverHistory.total_estimated_cost || 0).toFixed(2)}</p>
+                        <p className="mt-1 text-xs text-slate-600">Avg ${Number(driverHistory.average_price_per_seat || 0).toFixed(2)}/seat</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <button
+                        onClick={() =>
+                          setExpandedDriverHistoryId((prev) =>
+                            prev === driverHistory.driver_user_id ? null : driverHistory.driver_user_id
+                          )
+                        }
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        {expandedDriverHistoryId === driverHistory.driver_user_id ? 'Hide history' : 'View history'}
+                      </button>
+                    </div>
+
+                    {expandedDriverHistoryId === driverHistory.driver_user_id ? (
+                      <div className="mt-3 space-y-2">
+                        {driverHistory.rides.map((ride) => (
+                          <div key={ride.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                              <p className="font-medium text-slate-900">{ride.route} • {ride.departure_time}</p>
+                              <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ride.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                                {ride.is_active ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-600">Vehicle: {ride.vehicle} • Seats: {ride.available_seats}</p>
+                            <p className="mt-1 text-xs text-slate-600">Cost: ${Number(ride.price_per_seat || 0).toFixed(2)}/seat • Ride total: ${Number(ride.estimated_total_cost || 0).toFixed(2)}</p>
+                            <p className="mt-1 text-xs text-slate-500">Created: {formatMessageTime(ride.created_at)}</p>
+                            <div className="mt-2">
+                              <button
+                                onClick={() => handleAdminDeleteRide(ride.id)}
+                                disabled={isDeletingAdminRideId === ride.id}
+                                className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                              >
+                                {isDeletingAdminRideId === ride.id ? 'Deleting...' : 'Delete ride'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+
+                {!isLoadingAdminDriverOverview && adminDriverOverview.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
+                    No driver history is available yet.
+                  </div>
+                ) : null}
+              </div>
+            </motion.div>
+
+            <motion.div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" {...cardMotion}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-slate-900">Admin Ride Reports</h3>
+                <button
+                  onClick={() => loadAdminReports({ showError: true })}
+                  className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {isLoadingAdminReports ? (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  Loading reports...
+                </div>
+              ) : null}
+
+              <div className="mt-4 space-y-3">
+                {adminReports.map((report) => (
+                  <article key={report.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {report.category || 'Issue'} • Report #{report.id}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Reporter: {report.reporter_name || `User #${report.reporter_id}`}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Against: {report.against_user_name || `User #${report.against_user_id}`} • Listing #{report.driver_listing_id}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">Submitted: {formatMessageTime(report.created_at)}</p>
+                      </div>
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${getReportStatusClass(report.status || 'open')}`}>
+                        {(report.status || 'open').toUpperCase()}
+                      </span>
+                    </div>
+
+                    <p className="mt-3 text-sm text-slate-700">{report.details}</p>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => handleUpdateReportStatus(report.id, 'open')}
+                        disabled={isUpdatingAdminReportId === report.id || report.status === 'open'}
+                        className="rounded-lg border border-amber-300 px-2.5 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-50 disabled:opacity-60"
+                      >
+                        Open
+                      </button>
+                      <button
+                        onClick={() => handleUpdateReportStatus(report.id, 'reviewing')}
+                        disabled={isUpdatingAdminReportId === report.id || report.status === 'reviewing'}
+                        className="rounded-lg border border-blue-300 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60"
+                      >
+                        Reviewing
+                      </button>
+                      <button
+                        onClick={() => handleUpdateReportStatus(report.id, 'resolved')}
+                        disabled={isUpdatingAdminReportId === report.id || report.status === 'resolved'}
+                        className="rounded-lg border border-green-300 px-2.5 py-1.5 text-xs font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-60"
+                      >
+                        {isUpdatingAdminReportId === report.id ? 'Updating...' : 'Resolved'}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+
+                {!isLoadingAdminReports && adminReports.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
+                    No reports submitted yet.
+                  </div>
+                ) : null}
+              </div>
+            </motion.div>
+          </>
         ) : null}
       </section>
 

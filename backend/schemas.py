@@ -31,6 +31,8 @@ class DriverBase(BaseModel):
     departure_time: str
     price_per_seat: float
     pickup_location: str
+    skills: Optional[str] = None
+    labels: Optional[str] = None
     notes: Optional[str] = None
 
 class DriverCreate(DriverBase):
@@ -43,12 +45,17 @@ class DriverUpdate(BaseModel):
     departure_time: Optional[str] = None
     price_per_seat: Optional[float] = None
     pickup_location: Optional[str] = None
+    skills: Optional[str] = None
+    labels: Optional[str] = None
     notes: Optional[str] = None
 
 class DriverResponse(DriverBase):
     id: int
     user_id: int
     user_name: Optional[str] = None
+    rating_average: float = 0
+    rating_count: int = 0
+    ride_history_count: int = 0
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -66,6 +73,8 @@ class DriverHistoryEntry(BaseModel):
     price_per_seat: float
     estimated_total_cost: float
     pickup_location: str
+    skills: Optional[str] = None
+    labels: Optional[str] = None
     notes: Optional[str] = None
     is_active: bool
     created_at: datetime
@@ -158,6 +167,54 @@ class MessageResponse(BaseModel):
     subject: str
     body: str
     is_read: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RideReviewCreate(BaseModel):
+    driver_user_id: int
+    driver_listing_id: int
+    rating: int
+    comment: Optional[str] = None
+
+
+class RideReviewResponse(BaseModel):
+    id: int
+    reviewer_id: int
+    reviewer_name: Optional[str] = None
+    driver_user_id: int
+    driver_listing_id: int
+    rating: int
+    comment: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RideReportCreate(BaseModel):
+    against_user_id: int
+    driver_listing_id: int
+    category: str
+    details: str
+
+
+class RideReportStatusUpdate(BaseModel):
+    status: str
+
+
+class RideReportResponse(BaseModel):
+    id: int
+    reporter_id: int
+    reporter_name: Optional[str] = None
+    against_user_id: int
+    against_user_name: Optional[str] = None
+    driver_listing_id: int
+    category: str
+    details: str
+    status: str
     created_at: datetime
 
     class Config:

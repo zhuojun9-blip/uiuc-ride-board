@@ -32,6 +32,8 @@ class Driver(Base):
     departure_time = Column(String, nullable=False)
     price_per_seat = Column(Float, nullable=False, default=0.0)
     pickup_location = Column(String, nullable=False)
+    skills = Column(Text)
+    labels = Column(Text)
     notes = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
@@ -73,4 +75,29 @@ class Message(Base):
     subject = Column(String, nullable=False)
     body = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class RideReview(Base):
+    __tablename__ = "ride_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reviewer_id = Column(Integer, nullable=False, index=True)
+    driver_user_id = Column(Integer, nullable=False, index=True)
+    driver_listing_id = Column(Integer, nullable=False, index=True)
+    rating = Column(Integer, nullable=False)
+    comment = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class RideReport(Base):
+    __tablename__ = "ride_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reporter_id = Column(Integer, nullable=False, index=True)
+    against_user_id = Column(Integer, nullable=False, index=True)
+    driver_listing_id = Column(Integer, nullable=False, index=True)
+    category = Column(String, nullable=False)
+    details = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="open", index=True)
     created_at = Column(DateTime, server_default=func.now())

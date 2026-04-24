@@ -167,3 +167,31 @@ export const messageAPI = {
       method: 'PUT',
     }),
 }
+
+export const reviewAPI = {
+  createReview: (data) =>
+    apiCall('/reviews/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getDriverReviews: (driverUserId) => apiCall(`/reviews/driver/${driverUserId}`),
+}
+
+export const reportAPI = {
+  createReport: (data) =>
+    apiCall('/reports/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getMyReports: () => apiCall('/reports/mine'),
+
+  getAdminReports: () => apiCall('/reports/admin/all'),
+
+  updateReportStatus: (reportId, status) =>
+    apiCall(`/reports/${reportId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
+}
