@@ -255,6 +255,52 @@ function AvatarName({
   )
 }
 
+function DepartureBadge({ departure, now }) {
+  if (!departure) return null
+  const d = new Date(departure)
+  if (isNaN(d.getTime())) return null
+
+  const diffMs = d.getTime() - now
+  const diffMin = Math.round(diffMs / 60000)
+
+  let text, cls
+
+  if (diffMs < 0) {
+    text = 'Departed'
+    cls = 'bg-slate-100 text-slate-500'
+  } else if (diffMin < 120) {
+    text = `Leaving in ${diffMin}m`
+    cls = 'bg-red-100 text-red-700'
+  } else if (diffMin < 360) {
+    const h = Math.floor(diffMin / 60)
+    const m = diffMin % 60
+    text = m > 0 ? `Leaving in ${h}h ${m}m` : `Leaving in ${h}h`
+    cls = 'bg-orange-100 text-orange-700'
+  } else {
+    const today = new Date(now)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    if (d.toDateString() === tomorrow.toDateString()) {
+      text = `Tomorrow ${timeStr}`
+      cls = 'bg-slate-100 text-slate-600'
+    } else if (d.toDateString() === today.toDateString()) {
+      text = `Today ${timeStr}`
+      cls = 'bg-slate-100 text-slate-600'
+    } else {
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      text = `${dateStr} ${timeStr}`
+      cls = 'bg-slate-100 text-slate-600'
+    }
+  }
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
+      {text}
+    </span>
+  )
+}
+
 function App() {
   const [user, setUser] = useState(null)
   const [token, setToken] = useState(null)
@@ -370,6 +416,13 @@ function App() {
   const [adminHistorySearchTerm, setAdminHistorySearchTerm] = useState('')
   const [showAllAdminDriverHistory, setShowAllAdminDriverHistory] = useState(false)
   const backendBaseUrl = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '')
+  const [now, setNow] = useState(() => Date.now())
+
+  // Tick every minute so DepartureBadge labels stay current
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000)
+    return () => clearInterval(t)
+  }, [])
 
   // Load user and token from localStorage on mount
   useEffect(() => {
@@ -1730,14 +1783,43 @@ function App() {
           .toLowerCase()
           .includes(keyword)
 
-      return routeMatch && keywordMatch
+      const departureTimestamp = driver.departure ? new Date(driver.departure).getTime() : NaN
+      const isDeparted = Number.isFinite(departureTimestamp) && departureTimestamp < now
+
+      return routeMatch && keywordMatch && !isDeparted
     })
-  }, [driverListings, searchTerm, selectedRoute])
+  }, [driverListings, searchTerm, selectedRoute, now])
+
+  const upcomingDriverCount = useMemo(() => {
+    return driverListings.filter((driver) => {
+      const departureTimestamp = driver.departure ? new Date(driver.departure).getTime() : NaN
+      const isDeparted = Number.isFinite(departureTimestamp) && departureTimestamp < now
+      return !isDeparted
+    }).length
+  }, [driverListings, now])
+
+  const hasActiveDriverFilter = useMemo(() => {
+    const routeFilter = selectedRoute.trim().toLowerCase()
+    const hasRouteFilter =
+      routeFilter.length > 0 &&
+      routeFilter !== 'all routes' &&
+      routeFilter !== 'allroutes' &&
+      routeFilter !== 'all-routes'
+    return searchTerm.trim().length > 0 || hasRouteFilter
+  }, [searchTerm, selectedRoute])
 
   const visibleDrivers = useMemo(() => {
     if (showAllDriverListings) return filteredDrivers
     return filteredDrivers.slice(0, 6)
   }, [filteredDrivers, showAllDriverListings])
+
+  const filteredRiderRequests = useMemo(() => {
+    return riderRequests.filter((request) => {
+      const departureTimestamp = request.timing ? new Date(request.timing).getTime() : NaN
+      const isDeparted = Number.isFinite(departureTimestamp) && departureTimestamp < now
+      return !isDeparted
+    })
+  }, [riderRequests, now])
 
   const filteredAdminDriverOverview = useMemo(() => {
     const keyword = adminHistorySearchTerm.trim().toLowerCase()
@@ -2230,12 +2312,11 @@ function App() {
             <label>
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Departure</span>
               <input
-                type="text"
+                type="datetime-local"
                 value={driverForm.departure}
                 onChange={(event) =>
                   setDriverForm((prev) => ({ ...prev, departure: event.target.value }))
                 }
-                placeholder="Fri, 4:30 PM"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
               />
             </label>
@@ -2842,6 +2923,7 @@ function App() {
                   />
                   <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600">
                     <MapPin size={15} /> {driver.route}
+                    <DepartureBadge departure={driver.departure} now={now} />
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     ⭐ {Number(driver.ratingAverage || 0).toFixed(1)} ({driver.ratingCount || 0} rating{(driver.ratingCount || 0) === 1 ? '' : 's'}) • {driver.rideHistoryCount || 0} rides in history
@@ -2876,12 +2958,11 @@ function App() {
                       placeholder="e.g. UIUC → Schaumburg"
                     />
                     <input
-                      type="text"
+                      type="datetime-local"
                       value={editingDriverForm.departure}
                       onChange={(event) =>
                         setEditingDriverForm((prev) => ({ ...prev, departure: event.target.value }))
                       }
-                      placeholder="Departure time"
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
                     />
                     <input
@@ -2955,7 +3036,7 @@ function App() {
                 ) : (
                   <>
                     <p className="flex items-center gap-2">
-                      <Clock3 size={15} /> Departure: {driver.departure}
+                      <Clock3 size={15} /> Departure: {driver.departure ? new Date(driver.departure).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : driver.departure}
                     </p>
                     <p className="flex items-center gap-2">
                       <Car size={15} /> Vehicle: {driver.vehicle}
@@ -3251,7 +3332,9 @@ function App() {
 
         {filteredDrivers.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
-            No listings matched your search. Try a different route or keyword.
+            {upcomingDriverCount === 0 && !hasActiveDriverFilter
+              ? 'No upcoming driver listings right now.'
+              : 'No listings matched your search. Try a different route or keyword.'}
           </div>
         ) : null}
 
@@ -3576,12 +3659,11 @@ function App() {
             <label>
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Departure timing</span>
               <input
-                type="text"
+                type="datetime-local"
                 value={requestForm.departure}
                 onChange={(event) =>
                   setRequestForm((prev) => ({ ...prev, departure: event.target.value }))
                 }
-                placeholder="Sunday evening"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
               />
             </label>
@@ -3623,7 +3705,7 @@ function App() {
         </motion.div>
 
         <div className="grid gap-4 lg:grid-cols-3">
-          {riderRequests.map((request) => (
+          {filteredRiderRequests.map((request) => (
             <motion.article
               key={request.id}
               className={`rounded-2xl border bg-white p-5 shadow-sm transition ${
@@ -3669,12 +3751,11 @@ function App() {
                 {editingRequestId === request.id ? (
                   <>
                     <input
-                      type="text"
+                      type="datetime-local"
                       value={editingRequestForm.departure}
                       onChange={(event) =>
                         setEditingRequestForm((prev) => ({ ...prev, departure: event.target.value }))
                       }
-                      placeholder="Departure timing"
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
                     />
                     <input
@@ -3700,7 +3781,10 @@ function App() {
                   </>
                 ) : (
                   <>
-                    <p className="text-sm text-slate-600">{request.timing}</p>
+                    <p className="flex items-center gap-2 text-sm text-slate-600">
+                      {request.timing ? new Date(request.timing).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : request.timing}
+                      <DepartureBadge departure={request.timing} now={now} />
+                    </p>
                     <p className="text-sm text-slate-700">{request.details}</p>
                   </>
                 )}
@@ -3755,6 +3839,13 @@ function App() {
               ) : null}
             </motion.article>
           ))}
+          {filteredRiderRequests.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600 lg:col-span-3">
+              {riderRequests.length === 0
+                ? 'No ride requests posted yet.'
+                : 'No upcoming ride requests right now.'}
+            </div>
+          ) : null}
         </div>
       </section>
 
