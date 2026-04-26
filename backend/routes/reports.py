@@ -45,7 +45,7 @@ async def create_report(
     approved_shared_ride = db.query(SharedRideRequest).filter(
         SharedRideRequest.driver_listing_id == report_data.driver_listing_id,
         SharedRideRequest.rider_user_id == current_user.id,
-        SharedRideRequest.status == "approved",
+        SharedRideRequest.status.in_(["approved", "confirmed", "completed"]),
     ).first()
     if not approved_shared_ride:
         raise HTTPException(

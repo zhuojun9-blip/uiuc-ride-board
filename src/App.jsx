@@ -359,10 +359,10 @@ function App() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [adminChatMessages, setAdminChatMessages] = useState([])
   const [isLoadingAdminChats, setIsLoadingAdminChats] = useState(false)
-  const [messageTab, setMessageTab] = useState('inbox')
   const [isMarkingReadId, setIsMarkingReadId] = useState(null)
-  const [replyDrafts, setReplyDrafts] = useState({})
-  const [isSendingReplyId, setIsSendingReplyId] = useState(null)
+  const [selectedConversationId, setSelectedConversationId] = useState(null)
+  const [conversationDraft, setConversationDraft] = useState('')
+  const [isSendingConversationId, setIsSendingConversationId] = useState(null)
   const [adminApplications, setAdminApplications] = useState([])
   const [isLoadingAdminApplications, setIsLoadingAdminApplications] = useState(false)
   const [isUpdatingApplicationId, setIsUpdatingApplicationId] = useState(null)
@@ -392,6 +392,7 @@ function App() {
   const [isUpdatingSharedRideRequestId, setIsUpdatingSharedRideRequestId] = useState(null)
   const { addNotification } = useNotification()
   const avatarInputRef = useRef(null)
+  const conversationInputRef = useRef(null)
 
   const routes = [
     'All routes',
@@ -775,16 +776,175 @@ function App() {
     handleWebSocketNotification
   )
 
+  const buildThreadSubject = useCallback((listingId, requestId, route = '') => {
+    const suffix = route ? ` ${route}` : ''
+    return `[THREAD|listing:${listingId}|request:${requestId}]${suffix}`
+  }, [])
+
+  const parseThreadSubject = useCallback((subject) => {
+    if (!subject) return null
+    const match = subject.match(/^\[THREAD\|listing:(\d+)\|request:(\d+)\]/)
+    if (!match) return null
+    return {
+      listingId: Number(match[1]),
+      requestId: Number(match[2]),
+    }
+  }, [])
+
+  const getSharedRideStatusMeta = useCallback((status) => {
+    if (status === 'approved') {
+      return {
+        label: 'Approved - waiting for confirmation',
+        badgeClass: 'bg-blue-100 text-blue-700',
+      }
+    }
+    if (status === 'confirmed') {
+      return {
+        label: 'Ride confirmed',
+        badgeClass: 'bg-green-100 text-green-700',
+      }
+    }
+    if (status === 'rejected') {
+      return {
+        label: 'Rejected',
+        badgeClass: 'bg-red-100 text-red-700',
+      }
+    }
+    if (status === 'completed') {
+      return {
+        label: 'Ride completed',
+        badgeClass: 'bg-emerald-100 text-emerald-700',
+      }
+    }
+    if (status === 'cancelled') {
+      return {
+        label: 'Request cancelled',
+        badgeClass: 'bg-slate-200 text-slate-700',
+      }
+    }
+    return {
+      label: 'Pending approval',
+      badgeClass: 'bg-amber-100 text-amber-700',
+    }
+  }, [])
+
+  const allSharedRideRequests = useMemo(() => {
+    const byId = new Map()
+    for (const item of [...mySharedRideRequests, ...driverSharedRideRequests]) {
+      byId.set(item.id, item)
+    }
+    return Array.from(byId.values())
+  }, [mySharedRideRequests, driverSharedRideRequests])
+
+  const allDirectMessages = useMemo(() => {
+    const byId = new Map()
+    for (const message of [...inboxMessages, ...sentMessages]) {
+      byId.set(message.id, message)
+    }
+    return Array.from(byId.values())
+  }, [inboxMessages, sentMessages])
+
+  const driverListingById = useMemo(() => {
+    const byId = new Map()
+    for (const listing of driverListings) {
+      byId.set(listing.id, listing)
+    }
+    return byId
+  }, [driverListings])
+
+  const threadConversations = useMemo(() => {
+    return allSharedRideRequests
+      .map((request) => {
+        const messages = allDirectMessages
+          .filter((message) => {
+            const parsed = parseThreadSubject(message.subject)
+            return parsed && parsed.requestId === request.id && parsed.listingId === request.driver_listing_id
+          })
+          .sort((left, right) => new Date(left.created_at) - new Date(right.created_at))
+
+        const participants = [
+          {
+            id: request.driver_user_id,
+            name: request.driver_user_id === user?.id ? user?.name || 'You' : 'Driver',
+            avatarUrl: request.driver_user_id === user?.id ? user?.avatar_url || '' : '',
+          },
+          {
+            id: request.rider_user_id,
+            name: request.rider_name || `User #${request.rider_user_id}`,
+            avatarUrl: request.rider_avatar_url || '',
+          },
+        ]
+
+        const lastMessage = messages[messages.length - 1]
+        const listing = driverListingById.get(request.driver_listing_id)
+        const hasUnread = messages.some(
+          (message) => message.recipient_id === user?.id && !message.is_read
+        )
+
+        return {
+          id: request.id,
+          request,
+          messages,
+          participants,
+          route: request.driver_route || listing?.route || `Listing #${request.driver_listing_id}`,
+          departureTime: request.driver_departure_time || listing?.departure || null,
+          seats: request.seats_requested,
+          pricePerSeat: listing?.pricePerSeat,
+          driverName: listing?.name || 'Driver',
+          driverAvatarUrl: listing?.avatarUrl || '',
+          status: request.status,
+          hasUnread,
+          lastActivityAt: lastMessage?.created_at || request.updated_at || request.created_at,
+        }
+      })
+      .sort((left, right) => new Date(right.lastActivityAt || 0) - new Date(left.lastActivityAt || 0))
+  }, [allSharedRideRequests, allDirectMessages, driverListingById, parseThreadSubject, user?.avatar_url, user?.id, user?.name])
+
   const unreadInboxCount = useMemo(
-    () => inboxMessages.filter((message) => !message.is_read).length,
-    [inboxMessages]
+    () => threadConversations.reduce((sum, conversation) => sum + (conversation.hasUnread ? 1 : 0), 0),
+    [threadConversations]
   )
+
+  const selectedConversation = useMemo(
+    () => threadConversations.find((conversation) => conversation.id === selectedConversationId) || null,
+    [threadConversations, selectedConversationId]
+  )
+
+  useEffect(() => {
+    if (!threadConversations.length) {
+      setSelectedConversationId(null)
+      return
+    }
+
+    if (!selectedConversationId || !threadConversations.some((item) => item.id === selectedConversationId)) {
+      setSelectedConversationId(threadConversations[0].id)
+    }
+  }, [selectedConversationId, threadConversations])
+
+  useEffect(() => {
+    if (!selectedConversation) return
+    const unreadIds = selectedConversation.messages
+      .filter((message) => message.recipient_id === user?.id && !message.is_read)
+      .map((message) => message.id)
+
+    if (unreadIds.length === 0) return
+
+    Promise.all(unreadIds.map((id) => messageAPI.markAsRead(id)))
+      .then(() => loadMessages())
+      .catch(() => null)
+  }, [loadMessages, selectedConversation, user?.id])
+
+  useEffect(() => {
+    if (activeUtilityPanel === 'messages' && selectedConversation && conversationInputRef.current) {
+      conversationInputRef.current.focus()
+    }
+  }, [activeUtilityPanel, selectedConversation])
 
   const approvedSharedRideListingIds = useMemo(() => {
     if (!user) return new Set()
     return new Set(
       mySharedRideRequests
-        .filter((request) => request.status === 'approved')
+        .filter((request) => ['approved', 'confirmed', 'completed'].includes(request.status))
         .map((request) => request.driver_listing_id)
     )
   }, [mySharedRideRequests, user])
@@ -1033,6 +1193,22 @@ function App() {
     setDriverListings(mappedDrivers)
   }
 
+  const sendThreadSystemMessage = useCallback(
+    async (request, body) => {
+      if (!request || !body?.trim() || !user) return
+      const recipientId =
+        request.driver_user_id === user.id ? request.rider_user_id : request.driver_user_id
+      if (!recipientId) return
+
+      await messageAPI.sendMessage(
+        recipientId,
+        buildThreadSubject(request.driver_listing_id, request.id, request.driver_route || ''),
+        `[SYSTEM] ${body.trim()}`
+      )
+    },
+    [buildThreadSubject, user]
+  )
+
   const handleCreateSharedRideRequest = async (driver) => {
     if (!requireAuth()) return
 
@@ -1049,11 +1225,18 @@ function App() {
 
     try {
       setIsSubmittingSharedRideId(driver.id)
-      await sharedRideAPI.createRequest({
+      const createdRequest = await sharedRideAPI.createRequest({
         driver_listing_id: driver.id,
         seats_requested: seatsRequested,
         message: draft.message,
       })
+      try {
+        await sendThreadSystemMessage(
+          createdRequest,
+          `${user.name || 'A rider'} sent a request`
+        )
+      } catch {
+      }
       setSharedRideDrafts((prev) => ({ ...prev, [driver.id]: { seats: '1', message: '' } }))
       addNotification({
         type: 'success',
@@ -1072,16 +1255,33 @@ function App() {
     }
   }
 
-  const handleUpdateSharedRideRequestStatus = async (requestId, status) => {
+  const handleSharedRideConversationAction = async (request, status) => {
+    if (!request) return
+
+    const actionLabels = {
+      approved: 'approved this request',
+      rejected: 'rejected this request',
+      confirmed: 'confirmed the ride',
+      cancelled: 'cancelled this request',
+      completed: 'marked this ride as completed',
+    }
+
     try {
-      setIsUpdatingSharedRideRequestId(requestId)
-      await sharedRideAPI.updateRequestStatus(requestId, status)
+      setIsUpdatingSharedRideRequestId(request.id)
+      await sharedRideAPI.updateRequestStatus(request.id, status)
+      try {
+        await sendThreadSystemMessage(
+          request,
+          `${user?.name || 'A user'} ${actionLabels[status] || `updated this request to ${status}`}`
+        )
+      } catch {
+      }
       addNotification({
         type: 'success',
         title: 'Shared ride updated',
         message: `Shared ride request marked as ${status}.`,
       })
-      await Promise.all([loadSharedRideRequests(), refreshDriverListings(), loadAdminDriverOverview()])
+      await Promise.all([loadSharedRideRequests(), refreshDriverListings(), loadAdminDriverOverview(), loadMessages()])
     } catch (error) {
       addNotification({
         type: 'error',
@@ -1973,13 +2173,9 @@ function App() {
     }
   }
 
-  const handleReplyChange = (messageId, value) => {
-    setReplyDrafts((prev) => ({ ...prev, [messageId]: value }))
-  }
-
-  const handleSendReply = async (message) => {
-    const replyBody = (replyDrafts[message.id] || '').trim()
-    if (!replyBody) {
+  const sendConversationMessage = async (conversation, rawBody) => {
+    const body = (rawBody || '').trim()
+    if (!conversation || !body) {
       addNotification({
         type: 'warning',
         title: 'Reply is empty',
@@ -1988,19 +2184,23 @@ function App() {
       return
     }
 
+    const request = conversation.request
+    const recipientId = request.driver_user_id === user?.id ? request.rider_user_id : request.driver_user_id
+    if (!recipientId) return
+
     try {
-      setIsSendingReplyId(message.id)
-      const replySubject = message.subject.startsWith('Re: ')
-        ? message.subject
-        : `Re: ${message.subject}`
+      setIsSendingConversationId(conversation.id)
+      await messageAPI.sendMessage(
+        recipientId,
+        buildThreadSubject(request.driver_listing_id, request.id, request.driver_route || ''),
+        body
+      )
 
-      await messageAPI.sendMessage(message.sender_id, replySubject, replyBody)
-
-      setReplyDrafts((prev) => ({ ...prev, [message.id]: '' }))
+      setConversationDraft('')
       addNotification({
         type: 'success',
         title: 'Reply sent',
-        message: `Your reply was sent to ${message.sender_name || `User #${message.sender_id}`}.`,
+        message: 'Your message was sent.',
       })
       loadMessages()
     } catch (error) {
@@ -2010,7 +2210,21 @@ function App() {
         message: error.message || 'Please try again.',
       })
     } finally {
-      setIsSendingReplyId(null)
+      setIsSendingConversationId(null)
+    }
+  }
+
+  const handleConversationKeyDown = (event, conversation) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      sendConversationMessage(conversation, conversationDraft)
+    }
+  }
+
+  const handleQuickReply = (text) => {
+    setConversationDraft(text)
+    if (conversationInputRef.current) {
+      conversationInputRef.current.focus()
     }
   }
 
@@ -2033,7 +2247,7 @@ function App() {
                 onClick={() =>
                   setActiveUtilityPanel((prev) => (prev === 'messages' ? null : 'messages'))
                 }
-                className={`inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
+                className={`relative inline-flex flex-col items-center justify-center rounded-lg border px-1.5 py-1 transition ${
                   activeUtilityPanel === 'messages'
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
                     : 'border-slate-300 text-slate-700 hover:bg-slate-100'
@@ -2041,6 +2255,11 @@ function App() {
               >
                 <MessageSquare size={16} />
                 <span className="text-[10px] leading-none">Msg</span>
+                {unreadInboxCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 rounded-full bg-red-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                    {unreadInboxCount}
+                  </span>
+                ) : null}
               </button>
 
               <button
@@ -2420,303 +2639,256 @@ function App() {
                     <h2 className="text-2xl font-semibold text-slate-900">Messages</h2>
                   </div>
                   <p className="mt-1 text-sm text-slate-600">
-                    View ride inquiries and offers you have sent or received.
+                    Conversations are grouped by ride request so details and status stay in one thread.
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setMessageTab('inbox')}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                      messageTab === 'inbox'
-                        ? 'bg-slate-900 text-white'
-                        : 'border border-slate-300 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    Inbox{unreadInboxCount > 0 ? ` (${unreadInboxCount})` : ''}
-                  </button>
-                  <button
-                    onClick={() => setMessageTab('sent')}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                      messageTab === 'sent'
-                        ? 'bg-slate-900 text-white'
-                        : 'border border-slate-300 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    Sent
-                  </button>
-                </div>
+                <span className="text-sm text-slate-500">{threadConversations.length} conversation{threadConversations.length === 1 ? '' : 's'}</span>
               </div>
 
-              <div className="mt-5 space-y-3">
-                <div className="rounded-xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-slate-900">Shared Ride Requests</h3>
-                    <button
-                      onClick={() => loadSharedRideRequests({ showError: true })}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-
-                  {isLoadingSharedRideRequests ? (
-                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                      Loading shared ride requests...
-                    </div>
-                  ) : null}
-
-                  <div className="mt-3 space-y-3">
-                    {driverSharedRideRequests.length > 0 ? (
-                      <div>
-                        <p className="text-xs font-semibold text-slate-700">Requests for your rides</p>
-                        <div className="mt-2 space-y-2">
-                          {driverSharedRideRequests.map((request) => (
-                            <article key={`driver-shared-${request.id}`} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
-                              <p className="font-medium text-slate-900">{request.driver_route || `Listing #${request.driver_listing_id}`}</p>
-                              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                                <span>Rider:</span>
-                                <AvatarName
-                                  name={request.rider_name || `User #${request.rider_user_id}`}
-                                  avatarUrl={request.rider_avatar_url}
-                                  resolveAvatarUrl={resolveAvatarUrl}
-                                  avatarClassName="h-6 w-6"
-                                  nameClassName="text-xs font-semibold text-slate-700"
-                                  className="gap-2"
-                                />
-                                <span>• {request.seats_requested} seat(s) • {request.driver_departure_time || 'Time TBD'}</span>
-                              </div>
-                              {request.message ? <p className="mt-1 text-xs text-slate-600">“{request.message}”</p> : null}
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getReportStatusClass(request.status === 'approved' ? 'resolved' : request.status === 'rejected' || request.status === 'cancelled' ? 'open' : 'reviewing')}`}>
-                                  {request.status}
-                                </span>
-                                <button
-                                  onClick={() => handleUpdateSharedRideRequestStatus(request.id, 'approved')}
-                                  disabled={isUpdatingSharedRideRequestId === request.id || request.status === 'approved'}
-                                  className="rounded-lg border border-green-300 px-2.5 py-1 text-xs font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-60"
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  onClick={() => handleUpdateSharedRideRequestStatus(request.id, 'rejected')}
-                                  disabled={isUpdatingSharedRideRequestId === request.id || request.status === 'rejected'}
-                                  className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
-                                >
-                                  Reject
-                                </button>
-                                <button
-                                  onClick={() => handleUpdateSharedRideRequestStatus(request.id, 'cancelled')}
-                                  disabled={isUpdatingSharedRideRequestId === request.id || request.status === 'cancelled'}
-                                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </article>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div>
-                      <p className="text-xs font-semibold text-slate-700">Your shared ride requests</p>
-                      <div className="mt-2 space-y-2">
-                        {mySharedRideRequests.map((request) => (
-                          <article key={`my-shared-${request.id}`} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700">
-                            <p className="font-medium text-slate-900">{request.driver_route || `Listing #${request.driver_listing_id}`}</p>
-                            <p className="mt-1 text-xs text-slate-600">
-                              {request.seats_requested} seat(s) • {request.driver_departure_time || 'Time TBD'}
-                            </p>
-                            {request.message ? <p className="mt-1 text-xs text-slate-600">“{request.message}”</p> : null}
-                            <span className="mt-2 inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                              {request.status}
-                            </span>
-                          </article>
-                        ))}
-
-                        {!isLoadingSharedRideRequests && mySharedRideRequests.length === 0 && driverSharedRideRequests.length === 0 ? (
-                          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
-                            No shared ride requests yet.
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {isLoadingMessages ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                    Loading messages...
+              <div className="mt-5">
+                {isLoadingSharedRideRequests || isLoadingMessages ? (
+                  <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    Loading conversations...
                   </div>
                 ) : null}
 
-                {user?.is_admin ? (
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-slate-900">Admin Chat Monitor</h3>
-                      <button
-                        onClick={() => loadAdminChats({ showError: true })}
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        Refresh
-                      </button>
-                    </div>
+                <div className="grid h-[560px] gap-4 md:grid-cols-[300px_minmax(0,1fr)]">
+                  <aside className="overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2.5">
+                    <div className="space-y-2">
+                      {threadConversations.map((conversation) => {
+                        const statusMeta = getSharedRideStatusMeta(conversation.status)
+                        const lastMessage = conversation.messages[conversation.messages.length - 1]
+                        const previewText = (lastMessage?.body || '').replace(/^\[SYSTEM\]\s*/i, '')
+                        const isSelected = selectedConversation?.id === conversation.id
 
-                    {isLoadingAdminChats ? (
-                      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                        Loading conversations...
-                      </div>
-                    ) : null}
-
-                    <div className="mt-3 space-y-3">
-                      {adminChatConversations.map((conversation) => (
-                        <article key={conversation.key} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-                          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-800">
-                            <AvatarName
-                              name={conversation.participantALabel}
-                              avatarUrl={conversation.participantAAvatarUrl}
-                              resolveAvatarUrl={resolveAvatarUrl}
-                              avatarClassName="h-6 w-6"
-                              nameClassName="text-xs font-semibold text-slate-800"
-                              className="gap-2"
-                            />
-                            <span>↔</span>
-                            <AvatarName
-                              name={conversation.participantBLabel}
-                              avatarUrl={conversation.participantBAvatarUrl}
-                              resolveAvatarUrl={resolveAvatarUrl}
-                              avatarClassName="h-6 w-6"
-                              nameClassName="text-xs font-semibold text-slate-800"
-                              className="gap-2"
-                            />
-                          </div>
-                          <div className="mt-2 space-y-2">
-                            {conversation.messages.map((message) => (
-                              <div
-                                key={`admin-chat-${message.id}`}
-                                className={`rounded-md px-2.5 py-2 text-xs ${
-                                  message.sender_id === conversation.participantAId
-                                    ? 'bg-blue-50 text-blue-900'
-                                    : 'bg-indigo-50 text-indigo-900'
-                                }`}
-                              >
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <AvatarName
-                                    name={message.sender_name || `User #${message.sender_id}`}
-                                    avatarUrl={message.sender_avatar_url}
-                                    resolveAvatarUrl={resolveAvatarUrl}
-                                    avatarClassName="h-6 w-6"
-                                    nameClassName="text-xs font-semibold text-slate-900"
-                                    className="gap-2"
-                                  />
-                                  <span>→</span>
-                                  <AvatarName
-                                    name={message.recipient_name || `User #${message.recipient_id}`}
-                                    avatarUrl={message.recipient_avatar_url}
-                                    resolveAvatarUrl={resolveAvatarUrl}
-                                    avatarClassName="h-6 w-6"
-                                    nameClassName="text-xs font-semibold text-slate-900"
-                                    className="gap-2"
-                                  />
-                                </div>
-                                <p className="mt-1">{message.body}</p>
-                                <p className="mt-1 text-[10px] text-slate-500">{formatMessageTime(message.created_at)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </article>
-                      ))}
-
-                      {!isLoadingAdminChats && adminChatConversations.length === 0 ? (
-                        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
-                          No chat history is available yet.
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-
-                {(messageTab === 'inbox' ? inboxMessages : sentMessages).map((message) => {
-                  const isInboxView = messageTab === 'inbox'
-                  const replyDraft = replyDrafts[message.id] || ''
-
-                  return (
-                    <article
-                      key={message.id}
-                      className={`rounded-xl border p-4 ${
-                        isInboxView && !message.is_read
-                          ? 'border-blue-200 bg-blue-50/40'
-                          : 'border-slate-200 bg-slate-50/50'
-                      }`}
-                    >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold text-slate-900">{message.subject}</h3>
-                            {isInboxView && !message.is_read ? (
-                              <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                                New
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                            <span>{isInboxView ? 'From' : 'To'}</span>
-                            <AvatarName
-                              name={isInboxView
-                                ? (message.sender_name || `User #${message.sender_id}`)
-                                : (message.recipient_name || `User #${message.recipient_id}`)}
-                              avatarUrl={isInboxView ? message.sender_avatar_url : message.recipient_avatar_url}
-                              resolveAvatarUrl={resolveAvatarUrl}
-                              avatarClassName="h-6 w-6"
-                              nameClassName="text-xs font-semibold text-slate-700"
-                              className="gap-2"
-                            />
-                            <span>• {formatMessageTime(message.created_at)}</span>
-                          </div>
-                        </div>
-                        {isInboxView && !message.is_read ? (
+                        return (
                           <button
-                            onClick={() => handleMarkMessageRead(message.id)}
-                            disabled={isMarkingReadId === message.id}
-                            className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-60"
+                            key={`conversation-${conversation.id}`}
+                            onClick={() => setSelectedConversationId(conversation.id)}
+                            className={`w-full rounded-lg border p-3 text-left transition ${
+                              isSelected
+                                ? 'border-blue-300 bg-blue-50 ring-1 ring-blue-100'
+                                : conversation.hasUnread
+                                ? 'border-blue-200 bg-blue-50/40 hover:bg-blue-50/70'
+                                : 'border-slate-200 bg-white hover:bg-slate-50'
+                            }`}
                           >
-                            {isMarkingReadId === message.id ? 'Saving...' : 'Mark as read'}
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="truncate text-sm font-semibold text-slate-900">{conversation.route}</p>
+                              {conversation.hasUnread ? <span className="mt-1 h-2 w-2 rounded-full bg-blue-600" /> : null}
+                            </div>
+                            <p className="mt-1 truncate text-xs text-slate-600">
+                              {previewText || statusMeta.label}
+                            </p>
+                            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                              <span className={`rounded-full px-2 py-0.5 font-semibold ${statusMeta.badgeClass}`}>
+                                {statusMeta.label}
+                              </span>
+                              <span>{formatMessageTime(conversation.lastActivityAt)}</span>
+                            </div>
                           </button>
-                        ) : null}
-                      </div>
-                      <p className="mt-3 text-sm leading-6 text-slate-700">{message.body}</p>
+                        )
+                      })}
 
-                      {isInboxView ? (
-                        <div className="mt-3 space-y-2">
-                          <textarea
-                            rows="2"
-                            value={replyDraft}
-                            onChange={(event) => handleReplyChange(message.id, event.target.value)}
-                            placeholder="Write a quick reply..."
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
-                          />
-                          <div>
-                            <button
-                              onClick={() => handleSendReply(message)}
-                              disabled={isSendingReplyId === message.id}
-                              className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
-                            >
-                              {isSendingReplyId === message.id ? 'Sending...' : 'Send Reply'}
-                            </button>
-                          </div>
+                      {!isLoadingSharedRideRequests && !isLoadingMessages && threadConversations.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
+                          No ride conversations yet.
                         </div>
                       ) : null}
-                    </article>
-                  )
-                })}
+                    </div>
+                  </aside>
 
-                {!isLoadingMessages && (messageTab === 'inbox' ? inboxMessages : sentMessages).length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
-                    {messageTab === 'inbox'
-                      ? 'No messages yet. When riders or drivers contact you, they will appear here.'
-                      : 'You have not sent any messages yet.'}
-                  </div>
-                ) : null}
+                  <section className="flex min-h-0 flex-col rounded-xl border border-slate-200 bg-white">
+                    {selectedConversation ? (
+                      <>
+                        {(() => {
+                          const request = selectedConversation.request
+                          const statusMeta = getSharedRideStatusMeta(selectedConversation.status)
+                          const isDriver = user?.id === request.driver_user_id
+                          const isRider = user?.id === request.rider_user_id
+                          const quickReplies = ['What time exactly?', 'Where is pickup?', 'I can bring luggage']
+                          if (selectedConversation.status === 'approved') {
+                            quickReplies.push('I confirm this ride.')
+                          }
+
+                          return (
+                            <>
+                              <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-4 py-3">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold text-slate-900">{selectedConversation.route}</p>
+                                    <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                                      {selectedConversation.departureTime ? <span>Departure: {selectedConversation.departureTime}</span> : null}
+                                      {selectedConversation.seats ? <span>Seats: {selectedConversation.seats}</span> : null}
+                                      {Number.isFinite(Number(selectedConversation.pricePerSeat)) ? (
+                                        <span>Price: ${Number(selectedConversation.pricePerSeat).toFixed(2)}/seat</span>
+                                      ) : null}
+                                    </div>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.badgeClass}`}>
+                                        {statusMeta.label}
+                                      </span>
+                                      <span className="text-xs text-slate-500">Participants:</span>
+                                      <AvatarName
+                                        name={selectedConversation.driverName}
+                                        avatarUrl={selectedConversation.driverAvatarUrl}
+                                        resolveAvatarUrl={resolveAvatarUrl}
+                                        avatarClassName="h-5 w-5"
+                                        nameClassName="text-xs font-medium text-slate-700"
+                                        className="gap-1"
+                                      />
+                                      <AvatarName
+                                        name={request.rider_name || `User #${request.rider_user_id}`}
+                                        avatarUrl={request.rider_avatar_url || ''}
+                                        resolveAvatarUrl={resolveAvatarUrl}
+                                        avatarClassName="h-5 w-5"
+                                        nameClassName="text-xs font-medium text-slate-700"
+                                        className="gap-1"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2">
+                                    {isDriver && selectedConversation.status === 'pending' ? (
+                                      <>
+                                        <button
+                                          onClick={() => handleSharedRideConversationAction(request, 'approved')}
+                                          disabled={isUpdatingSharedRideRequestId === request.id}
+                                          className="rounded-lg border border-green-300 px-2.5 py-1 text-xs font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-60"
+                                        >
+                                          Approve
+                                        </button>
+                                        <button
+                                          onClick={() => handleSharedRideConversationAction(request, 'rejected')}
+                                          disabled={isUpdatingSharedRideRequestId === request.id}
+                                          className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                                        >
+                                          Reject
+                                        </button>
+                                      </>
+                                    ) : null}
+
+                                    {isRider && selectedConversation.status === 'approved' ? (
+                                      <button
+                                        onClick={() => handleSharedRideConversationAction(request, 'confirmed')}
+                                        disabled={isUpdatingSharedRideRequestId === request.id}
+                                        className="rounded-lg border border-green-300 px-2.5 py-1 text-xs font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-60"
+                                      >
+                                        Confirm ride
+                                      </button>
+                                    ) : null}
+
+                                    {isRider && ['pending', 'approved', 'confirmed'].includes(selectedConversation.status) ? (
+                                      <button
+                                        onClick={() => handleSharedRideConversationAction(request, 'cancelled')}
+                                        disabled={isUpdatingSharedRideRequestId === request.id}
+                                        className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60"
+                                      >
+                                        Cancel request
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                                <div className="space-y-4">
+                                  {selectedConversation.messages.map((message) => {
+                                    const isMine = message.sender_id === user?.id
+                                    const isSystem = /^\[SYSTEM\]\s*/i.test(message.body || '')
+                                    const cleanBody = (message.body || '').replace(/^\[SYSTEM\]\s*/i, '')
+
+                                    if (isSystem) {
+                                      return (
+                                        <p key={`system-${message.id}`} className="text-center text-xs text-slate-500">
+                                          {cleanBody}
+                                        </p>
+                                      )
+                                    }
+
+                                    return (
+                                      <div
+                                        key={`conversation-message-${message.id}`}
+                                        className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                                      >
+                                        <div className={`max-w-[80%] ${isMine ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+                                          <div className={`flex items-center gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
+                                            <AvatarName
+                                              name={
+                                                isMine
+                                                  ? (user?.name || 'You')
+                                                  : (message.sender_name || `User #${message.sender_id}`)
+                                              }
+                                              avatarUrl={isMine ? user?.avatar_url || '' : message.sender_avatar_url || ''}
+                                              resolveAvatarUrl={resolveAvatarUrl}
+                                              avatarClassName="h-6 w-6"
+                                              nameClassName="text-xs font-semibold text-slate-700"
+                                              className="gap-1"
+                                            />
+                                          </div>
+                                          <div
+                                            className={`rounded-2xl px-3 py-2 text-sm leading-6 ${
+                                              isMine
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-slate-100 text-slate-800'
+                                            }`}
+                                          >
+                                            {cleanBody}
+                                          </div>
+                                          <p className="text-xs text-slate-500">{formatMessageTime(message.created_at)}</p>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+
+                                  {selectedConversation.messages.length === 0 ? (
+                                    <p className="text-center text-sm text-slate-500">No messages yet in this thread.</p>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="border-t border-slate-200 px-4 py-3">
+                                <div className="mb-2 flex flex-wrap gap-2">
+                                  {quickReplies.map((text) => (
+                                    <button
+                                      key={`quick-reply-${text}`}
+                                      onClick={() => handleQuickReply(text)}
+                                      className="rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition hover:bg-slate-100"
+                                    >
+                                      {text}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="flex items-end gap-2">
+                                  <textarea
+                                    ref={conversationInputRef}
+                                    rows="2"
+                                    value={conversationDraft}
+                                    onChange={(event) => setConversationDraft(event.target.value)}
+                                    onKeyDown={(event) => handleConversationKeyDown(event, selectedConversation)}
+                                    placeholder="Reply in this ride thread..."
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
+                                  />
+                                  <button
+                                    onClick={() => sendConversationMessage(selectedConversation, conversationDraft)}
+                                    disabled={isSendingConversationId === selectedConversation.id}
+                                    className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+                                  >
+                                    {isSendingConversationId === selectedConversation.id ? 'Sending...' : 'Send'}
+                                  </button>
+                                </div>
+                              </div>
+                            </>
+                          )
+                        })()}
+                      </>
+                    ) : (
+                      <div className="flex h-full items-center justify-center p-6 text-sm text-slate-500">
+                        Select a conversation to view details.
+                      </div>
+                    )}
+                  </section>
+                </div>
               </div>
             </motion.div>
           ) : null}
@@ -2902,7 +3074,26 @@ function App() {
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {visibleDrivers.map((driver) => (
+          {visibleDrivers.map((driver) => {
+            const seatCount = Number(driver.seats)
+            const hasSeatCount = Number.isFinite(seatCount) && seatCount >= 0
+            const parsedPrice = Number(driver.pricePerSeat)
+            const hasPrice =
+              driver.pricePerSeat !== '' &&
+              driver.pricePerSeat !== null &&
+              driver.pricePerSeat !== undefined &&
+              Number.isFinite(parsedPrice)
+            const ratingCount = Number(driver.ratingCount)
+            const ratingAverage = Number(driver.ratingAverage)
+            const rideHistoryCount = Number(driver.rideHistoryCount)
+            const activitySignal =
+              Number.isFinite(ratingCount) && ratingCount > 0 && Number.isFinite(ratingAverage)
+                ? `⭐ ${ratingAverage.toFixed(1)} from ${ratingCount} rating${ratingCount === 1 ? '' : 's'}`
+                : Number.isFinite(rideHistoryCount) && rideHistoryCount > 0
+                ? `${rideHistoryCount} completed ride${rideHistoryCount === 1 ? '' : 's'}`
+                : null
+
+            return (
             <motion.article
               key={driver.id}
               className={`rounded-2xl border bg-white p-5 shadow-sm transition ${
@@ -2913,7 +3104,7 @@ function App() {
               {...cardMotion}
             >
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0 flex-1">
                   <AvatarName
                     name={driver.name}
                     avatarUrl={driver.avatarUrl}
@@ -2921,13 +3112,34 @@ function App() {
                     avatarClassName="h-11 w-11"
                     nameClassName="text-lg font-semibold text-slate-900"
                   />
-                  <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600">
-                    <MapPin size={15} /> {driver.route}
-                    <DepartureBadge departure={driver.departure} now={now} />
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    ⭐ {Number(driver.ratingAverage || 0).toFixed(1)} ({driver.ratingCount || 0} rating{(driver.ratingCount || 0) === 1 ? '' : 's'}) • {driver.rideHistoryCount || 0} rides in history
-                  </p>
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      {driver.route ? (
+                        <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-slate-800">
+                          <MapPin size={15} className="shrink-0" />
+                          <span className="truncate">{driver.route}</span>
+                        </p>
+                      ) : null}
+                      {hasPrice ? (
+                        <p className="text-sm font-semibold text-emerald-700">
+                          ${parsedPrice.toFixed(2)}/seat
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <DepartureBadge departure={driver.departure} now={now} />
+                      {hasSeatCount ? (
+                        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                          {seatCount} seat{seatCount === 1 ? '' : 's'} left
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {activitySignal ? (
+                      <p className="text-xs text-slate-500">{activitySignal}</p>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   {editingDriverId === driver.id ? (
@@ -2935,12 +3147,6 @@ function App() {
                       Editing...
                     </span>
                   ) : null}
-                  <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                    {driver.seats} seat{driver.seats === 1 ? '' : 's'}
-                  </span>
-                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                      ${Number(driver.pricePerSeat || 0).toFixed(2)}/seat
-                    </span>
                 </div>
               </div>
 
@@ -3035,18 +3241,24 @@ function App() {
                   </div>
                 ) : (
                   <>
-                    <p className="flex items-center gap-2">
-                      <Clock3 size={15} /> Departure: {driver.departure ? new Date(driver.departure).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : driver.departure}
-                    </p>
-                    <p className="flex items-center gap-2">
-                      <Car size={15} /> Vehicle: {driver.vehicle}
-                    </p>
-                    <p className="flex items-center gap-2">
-                      <span className="font-medium">Cost:</span> ${Number(driver.pricePerSeat || 0).toFixed(2)} per seat
-                    </p>
+                    {driver.departure ? (
+                      <p className="flex items-center gap-2">
+                        <Clock3 size={15} /> Departure: {new Date(driver.departure).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </p>
+                    ) : null}
+                    {driver.vehicle ? (
+                      <p className="flex items-center gap-2">
+                        <Car size={15} /> Vehicle: {driver.vehicle}
+                      </p>
+                    ) : null}
+                    {hasPrice ? (
+                      <p className="flex items-center gap-2">
+                        <span className="font-medium">Cost:</span> ${parsedPrice.toFixed(2)} per seat
+                      </p>
+                    ) : null}
                     {driver.skills ? <p>Skills: {driver.skills}</p> : null}
                     {driver.labels ? <p>Labels: {driver.labels}</p> : null}
-                    <p>{driver.note}</p>
+                    {driver.note ? <p>{driver.note}</p> : null}
                   </>
                 )}
               </div>
@@ -3316,7 +3528,8 @@ function App() {
                 </div>
               ) : null}
             </motion.article>
-          ))}
+            )
+          })}
         </div>
 
         {filteredDrivers.length > 6 ? (

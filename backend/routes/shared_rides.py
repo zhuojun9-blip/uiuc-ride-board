@@ -53,7 +53,7 @@ async def create_shared_ride_request(
     existing_pending = db.query(SharedRideRequest).filter(
         SharedRideRequest.driver_listing_id == request_data.driver_listing_id,
         SharedRideRequest.rider_user_id == current_user.id,
-        SharedRideRequest.status.in_(["pending", "approved"]),
+        SharedRideRequest.status.in_(["pending", "approved", "confirmed"]),
     ).first()
     if existing_pending:
         raise HTTPException(status_code=400, detail="You already have an active shared ride request for this listing")
@@ -104,11 +104,14 @@ async def update_shared_ride_request_status(
     if not shared_request:
         raise HTTPException(status_code=404, detail="Shared ride request not found")
 
-    if shared_request.driver_user_id != current_user.id and not current_user.is_admin:
+    is_driver_or_admin = shared_request.driver_user_id == current_user.id or current_user.is_admin
+    is_rider = shared_request.rider_user_id == current_user.id
+
+    if not is_driver_or_admin and not is_rider:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     normalized_status = status_data.status.strip().lower()
-    if normalized_status not in {"pending", "approved", "rejected", "cancelled"}:
+    if normalized_status not in {"pending", "approved", "rejected", "confirmed", "completed", "cancelled"}:
         raise HTTPException(status_code=400, detail="Invalid status")
 
     driver_listing = db.query(Driver).filter(Driver.id == shared_request.driver_listing_id).first()
@@ -117,12 +120,43 @@ async def update_shared_ride_request_status(
 
     previous_status = shared_request.status
 
+    if normalized_status == previous_status:
+        return serialize_shared_ride_request(shared_request, db)
+
+    driver_allowed_transitions = {
+        "pending": {"approved", "rejected"},
+        "approved": {"rejected", "cancelled"},
+        "confirmed": {"completed", "cancelled"},
+        "rejected": set(),
+        "completed": set(),
+        "cancelled": set(),
+    }
+    rider_allowed_transitions = {
+        "pending": {"cancelled"},
+        "approved": {"confirmed", "cancelled"},
+        "confirmed": {"cancelled"},
+        "rejected": set(),
+        "completed": set(),
+        "cancelled": set(),
+    }
+
+    if is_driver_or_admin:
+        allowed_next = driver_allowed_transitions.get(previous_status, set())
+    else:
+        allowed_next = rider_allowed_transitions.get(previous_status, set())
+
+    if normalized_status not in allowed_next:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid transition from {previous_status} to {normalized_status}",
+        )
+
     if normalized_status == "approved" and previous_status != "approved":
         if shared_request.seats_requested > driver_listing.available_seats:
             raise HTTPException(status_code=400, detail="Not enough seats remaining to approve this request")
         driver_listing.available_seats -= shared_request.seats_requested
 
-    if previous_status == "approved" and normalized_status in {"rejected", "cancelled", "pending"}:
+    if previous_status in {"approved", "confirmed"} and normalized_status in {"rejected", "cancelled", "pending"}:
         driver_listing.available_seats += shared_request.seats_requested
 
     shared_request.status = normalized_status
