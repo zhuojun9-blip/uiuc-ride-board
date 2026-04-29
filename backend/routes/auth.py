@@ -12,8 +12,33 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 avatar_upload_dir = Path(__file__).resolve().parents[1] / "uploads" / "avatars"
 avatar_upload_dir.mkdir(parents=True, exist_ok=True)
 
+BLOCKED_NAME_PHRASES = {
+    "verified driver",
+    "admin verified",
+    "trusted driver",
+    "5-star",
+    "5 star",
+    "official driver",
+    "safe driver",
+}
+
+
+def validate_display_name(name: str) -> None:
+    normalized = " ".join((name or "").strip().lower().split())
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name is required")
+
+    for phrase in BLOCKED_NAME_PHRASES:
+        if phrase in normalized:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Name cannot include trust or verification claims",
+            )
+
 @router.post("/register", response_model=schemas.Token)
 async def register(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+    validate_display_name(user_data.name)
+
     # Check if user already exists
     db_user = db.query(User).filter(User.email == user_data.email).first()
     if db_user:

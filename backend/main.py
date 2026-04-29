@@ -53,6 +53,15 @@ def initialize_database() -> bool:
                 connection.execute(
                     text("ALTER TABLE driver_applications ADD COLUMN IF NOT EXISTS id_upload_status TEXT")
                 )
+                connection.execute(
+                    text("ALTER TABLE driver_applications ADD COLUMN IF NOT EXISTS profile_edit_window_start TIMESTAMP")
+                )
+                connection.execute(
+                    text("ALTER TABLE driver_applications ADD COLUMN IF NOT EXISTS profile_edit_count INTEGER DEFAULT 0")
+                )
+                connection.execute(
+                    text("ALTER TABLE driver_applications ADD COLUMN IF NOT EXISTS profile_edit_cooldown_until TIMESTAMP")
+                )
         return True
     except SQLAlchemyError as error:
         logger.exception(
