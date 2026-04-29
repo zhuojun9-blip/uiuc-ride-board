@@ -16,6 +16,12 @@ def serialize_application(application: DriverApplication, db: Session):
         user_id=application.user_id,
         full_name=application.full_name,
         email=application.email,
+        driver_tier=application.driver_tier,
+        phone_number=application.phone_number,
+        vehicle_info=application.vehicle_info,
+        email_verified=application.email_verified,
+        sms_verified=application.sms_verified,
+        id_upload_status=application.id_upload_status,
         primary_route=application.primary_route,
         available_seats=application.available_seats,
         notes=application.notes,
@@ -31,6 +37,19 @@ async def submit_application(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    normalized_tier = (app_data.driver_tier or "").strip().lower()
+    if normalized_tier not in {"uiuc_verified", "community"}:
+        raise HTTPException(status_code=400, detail="Invalid driver tier")
+
+    normalized_email = app_data.email.strip().lower()
+    if normalized_tier == "uiuc_verified":
+        if not normalized_email.endswith("@illinois.edu"):
+            raise HTTPException(status_code=400, detail="UIUC tier requires an @illinois.edu email")
+        if not app_data.email_verified:
+            raise HTTPException(status_code=400, detail="Email verification is required for UIUC tier")
+    if normalized_tier == "community" and not app_data.sms_verified:
+        raise HTTPException(status_code=400, detail="SMS verification is required for Community tier")
+
     existing_application = db.query(DriverApplication).filter(
         DriverApplication.user_id == current_user.id
     ).first()
@@ -38,6 +57,12 @@ async def submit_application(
     if existing_application:
         existing_application.full_name = app_data.full_name
         existing_application.email = app_data.email
+        existing_application.driver_tier = normalized_tier
+        existing_application.phone_number = app_data.phone_number
+        existing_application.vehicle_info = app_data.vehicle_info
+        existing_application.email_verified = app_data.email_verified
+        existing_application.sms_verified = app_data.sms_verified
+        existing_application.id_upload_status = app_data.id_upload_status
         existing_application.primary_route = app_data.primary_route
         existing_application.available_seats = app_data.available_seats
         existing_application.notes = app_data.notes
@@ -45,7 +70,7 @@ async def submit_application(
     else:
         db_app = DriverApplication(
             user_id=current_user.id,
-            **app_data.dict()
+            **{**app_data.dict(), "driver_tier": normalized_tier}
         )
         db.add(db_app)
 
@@ -104,7 +129,26 @@ async def update_application(
     if app.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    for key, value in app_data.dict(exclude_unset=True).items():
+    update_payload = app_data.dict(exclude_unset=True)
+    prospective_tier = (update_payload.get("driver_tier") or app.driver_tier or "").strip().lower()
+    prospective_email = (update_payload.get("email") or app.email or "").strip().lower()
+    prospective_email_verified = update_payload.get("email_verified", app.email_verified)
+    prospective_sms_verified = update_payload.get("sms_verified", app.sms_verified)
+
+    if prospective_tier not in {"uiuc_verified", "community"}:
+        raise HTTPException(status_code=400, detail="Invalid driver tier")
+    if prospective_tier == "uiuc_verified":
+        if not prospective_email.endswith("@illinois.edu"):
+            raise HTTPException(status_code=400, detail="UIUC tier requires an @illinois.edu email")
+        if not prospective_email_verified:
+            raise HTTPException(status_code=400, detail="Email verification is required for UIUC tier")
+    if prospective_tier == "community" and not prospective_sms_verified:
+        raise HTTPException(status_code=400, detail="SMS verification is required for Community tier")
+
+    if "driver_tier" in update_payload:
+        update_payload["driver_tier"] = prospective_tier
+
+    for key, value in update_payload.items():
         setattr(app, key, value)
     
     db.commit()

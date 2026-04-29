@@ -349,11 +349,21 @@ function App() {
   })
   const [isSavingRequestEdit, setIsSavingRequestEdit] = useState(false)
   const [applicationForm, setApplicationForm] = useState({
+    driverTier: 'uiuc_verified',
     fullName: '',
     email: '',
+    phoneNumber: '',
+    vehicleInfo: '',
+    emailVerified: false,
+    smsVerified: false,
+    idUploadStatus: 'coming_soon',
     availableSeats: '2',
     notes: '',
   })
+  const [emailOtpInput, setEmailOtpInput] = useState('')
+  const [smsOtpInput, setSmsOtpInput] = useState('')
+  const [sentEmailOtp, setSentEmailOtp] = useState('')
+  const [sentSmsOtp, setSentSmsOtp] = useState('')
   const [inboxMessages, setInboxMessages] = useState([])
   const [sentMessages, setSentMessages] = useState([])
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
@@ -1324,11 +1334,38 @@ function App() {
     if (!requireAuth()) return
 
     const seats = Number(applicationForm.availableSeats)
-    if (!applicationForm.fullName.trim() || !applicationForm.email.trim()) {
+    const normalizedEmail = applicationForm.email.trim().toLowerCase()
+    const isUiucTier = applicationForm.driverTier === 'uiuc_verified'
+
+    if (!applicationForm.fullName.trim() || !normalizedEmail || !applicationForm.phoneNumber.trim() || !applicationForm.vehicleInfo.trim()) {
       addNotification({
         type: 'error',
         title: 'Missing fields',
-        message: 'Please fill in your full name and email.',
+        message: 'Please complete full name, email, phone number, and vehicle info.',
+      })
+      return
+    }
+    if (isUiucTier && !normalizedEmail.endsWith('@illinois.edu')) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid UIUC email',
+        message: 'Only @illinois.edu emails can access UIUC Verified Driver tier.',
+      })
+      return
+    }
+    if (isUiucTier && !applicationForm.emailVerified) {
+      addNotification({
+        type: 'error',
+        title: 'Email not verified',
+        message: 'Verify your UIUC email before submitting this tier.',
+      })
+      return
+    }
+    if (!isUiucTier && !applicationForm.smsVerified) {
+      addNotification({
+        type: 'error',
+        title: 'Phone not verified',
+        message: 'SMS verification is required for Community Driver tier.',
       })
       return
     }
@@ -1344,7 +1381,13 @@ function App() {
     try {
       await applicationAPI.submitApplication({
         full_name: applicationForm.fullName,
-        email: applicationForm.email,
+        email: normalizedEmail,
+        driver_tier: applicationForm.driverTier,
+        phone_number: applicationForm.phoneNumber,
+        vehicle_info: applicationForm.vehicleInfo,
+        email_verified: applicationForm.emailVerified,
+        sms_verified: applicationForm.smsVerified,
+        id_upload_status: applicationForm.idUploadStatus,
         primary_route: 'All routes',
         available_seats: seats,
         notes: applicationForm.notes,
@@ -1352,15 +1395,25 @@ function App() {
       addNotification({
         type: 'success',
         title: 'Application saved',
-        message: 'Your driver application was submitted successfully.',
+        message: `${getDriverTierLabel(applicationForm.driverTier)} application submitted successfully.`,
       })
       loadMyApplications()
       loadAdminApplications()
       setApplicationForm((prev) => ({
         ...prev,
+        driverTier: 'uiuc_verified',
+        phoneNumber: '',
+        vehicleInfo: '',
+        emailVerified: false,
+        smsVerified: false,
+        idUploadStatus: 'coming_soon',
         availableSeats: '2',
         notes: '',
       }))
+      setEmailOtpInput('')
+      setSmsOtpInput('')
+      setSentEmailOtp('')
+      setSentSmsOtp('')
     } catch (error) {
       addNotification({
         type: 'error',
@@ -2106,6 +2159,9 @@ function App() {
           name: application.full_name,
           avatarUrl: application.user_avatar_url || '',
           email: application.email,
+          driverTier: application.driver_tier,
+          emailVerified: application.email_verified,
+          smsVerified: application.sms_verified,
           status: application.status,
           primaryRoute: 'All routes',
           seats: application.available_seats,
@@ -2131,6 +2187,9 @@ function App() {
           name: history.driver_name,
           avatarUrl: history.driver_avatar_url || '',
           email: history.driver_email,
+          driverTier: 'uiuc_verified',
+          emailVerified: true,
+          smsVerified: false,
           status: 'approved',
           primaryRoute: '-',
           seats: '-',
@@ -2186,6 +2245,102 @@ function App() {
     if (status === 'resolved') return 'bg-green-100 text-green-700'
     if (status === 'reviewing') return 'bg-blue-100 text-blue-700'
     return 'bg-amber-100 text-amber-700'
+  }
+
+  const getDriverTierLabel = (tier) => {
+    if (tier === 'community') return 'Community Driver (Limited Verification)'
+    return 'UIUC Verified Driver'
+  }
+
+  const sendEmailVerificationOtp = () => {
+    const email = applicationForm.email.trim().toLowerCase()
+    if (!email.endsWith('@illinois.edu')) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid UIUC email',
+        message: 'Use your @illinois.edu email to verify UIUC driver tier.',
+      })
+      return
+    }
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000))
+    setSentEmailOtp(otp)
+    setApplicationForm((prev) => ({ ...prev, emailVerified: false }))
+    addNotification({
+      type: 'info',
+      title: 'Verification code sent',
+      message: `Demo code: ${otp}`,
+    })
+  }
+
+  const verifyEmailOtp = () => {
+    if (!sentEmailOtp) {
+      addNotification({
+        type: 'warning',
+        title: 'Send code first',
+        message: 'Request an email verification code before confirming.',
+      })
+      return
+    }
+    if (emailOtpInput.trim() !== sentEmailOtp) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid code',
+        message: 'Email verification code does not match.',
+      })
+      return
+    }
+    setApplicationForm((prev) => ({ ...prev, emailVerified: true }))
+    addNotification({
+      type: 'success',
+      title: 'Email verified',
+      message: 'UIUC email verification completed.',
+    })
+  }
+
+  const sendSmsVerificationOtp = () => {
+    const phone = applicationForm.phoneNumber.trim()
+    if (!phone) {
+      addNotification({
+        type: 'error',
+        title: 'Phone required',
+        message: 'Enter a phone number before requesting SMS verification.',
+      })
+      return
+    }
+    const otp = String(Math.floor(100000 + Math.random() * 900000))
+    setSentSmsOtp(otp)
+    setApplicationForm((prev) => ({ ...prev, smsVerified: false }))
+    addNotification({
+      type: 'info',
+      title: 'SMS code sent',
+      message: `Demo code: ${otp}`,
+    })
+  }
+
+  const verifySmsOtp = () => {
+    if (!sentSmsOtp) {
+      addNotification({
+        type: 'warning',
+        title: 'Send code first',
+        message: 'Request an SMS code before confirming.',
+      })
+      return
+    }
+    if (smsOtpInput.trim() !== sentSmsOtp) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid code',
+        message: 'SMS verification code does not match.',
+      })
+      return
+    }
+    setApplicationForm((prev) => ({ ...prev, smsVerified: true }))
+    addNotification({
+      type: 'success',
+      title: 'Phone verified',
+      message: 'SMS verification completed.',
+    })
   }
 
   const handleMarkMessageRead = async (messageId) => {
@@ -2935,11 +3090,42 @@ function App() {
           >
             <h2 className="text-2xl font-semibold text-slate-900">Driver Application</h2>
             <p className="mt-2 text-sm text-slate-600">
-              Interested in posting rides? Submit your basic info below.
+              Choose your driver tier and complete verification to unlock posting access.
             </p>
             <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleApplicationSubmit}>
+              <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-900">Step 1: Choose verification tier</p>
+                <p className="mt-1 text-xs text-slate-600">Only UIUC students can access the UIUC Verified tier.</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setApplicationForm((prev) => ({ ...prev, driverTier: 'uiuc_verified' }))}
+                    className={`rounded-lg border p-3 text-left transition ${
+                      applicationForm.driverTier === 'uiuc_verified'
+                        ? 'border-blue-300 bg-blue-50'
+                        : 'border-slate-300 bg-white hover:bg-slate-100'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-slate-900">UIUC Verified Driver</p>
+                    <p className="mt-1 text-xs text-slate-600">@illinois.edu email verification required. SMS optional.</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setApplicationForm((prev) => ({ ...prev, driverTier: 'community' }))}
+                    className={`rounded-lg border p-3 text-left transition ${
+                      applicationForm.driverTier === 'community'
+                        ? 'border-amber-300 bg-amber-50'
+                        : 'border-slate-300 bg-white hover:bg-slate-100'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-slate-900">Community Driver (Limited Verification)</p>
+                    <p className="mt-1 text-xs text-slate-600">No .edu requirement, but SMS verification is mandatory.</p>
+                  </button>
+                </div>
+              </div>
+
               <label>
-                <span className="mb-1.5 block text-sm font-medium text-slate-700">Full name</span>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">Step 2: Full name</span>
                 <input
                   type="text"
                   placeholder="Your name"
@@ -2951,19 +3137,112 @@ function App() {
                 />
               </label>
               <label>
-                <span className="mb-1.5 block text-sm font-medium text-slate-700">UIUC email</span>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                  {applicationForm.driverTier === 'uiuc_verified' ? 'UIUC email' : 'Email'}
+                </span>
                 <input
                   type="email"
-                  placeholder="netid@illinois.edu"
+                  placeholder={applicationForm.driverTier === 'uiuc_verified' ? 'netid@illinois.edu' : 'name@email.com'}
                   value={applicationForm.email}
                   onChange={(event) =>
-                    setApplicationForm((prev) => ({ ...prev, email: event.target.value }))
+                    setApplicationForm((prev) => ({ ...prev, email: event.target.value, emailVerified: false }))
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                />
+              </label>
+
+              <div className="md:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-900">Step 3: Verification</p>
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-semibold text-slate-700">Email verification {applicationForm.driverTier === 'uiuc_verified' ? '(required)' : '(optional)'}</p>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        value={emailOtpInput}
+                        onChange={(event) => setEmailOtpInput(event.target.value)}
+                        placeholder="Enter email OTP"
+                        className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                      />
+                      <button
+                        type="button"
+                        onClick={sendEmailVerificationOtp}
+                        className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Send
+                      </button>
+                      <button
+                        type="button"
+                        onClick={verifyEmailOtp}
+                        className="rounded-lg border border-blue-300 px-2.5 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-50"
+                      >
+                        Verify
+                      </button>
+                    </div>
+                    <p className={`mt-2 text-xs ${applicationForm.emailVerified ? 'text-green-700' : 'text-slate-600'}`}>
+                      {applicationForm.emailVerified ? 'Email verified' : 'Email not verified'}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-semibold text-slate-700">SMS verification {applicationForm.driverTier === 'community' ? '(required)' : '(optional)'}</p>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        value={smsOtpInput}
+                        onChange={(event) => setSmsOtpInput(event.target.value)}
+                        placeholder="Enter SMS OTP"
+                        className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none ring-blue-200 transition focus:ring"
+                      />
+                      <button
+                        type="button"
+                        onClick={sendSmsVerificationOtp}
+                        className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Send
+                      </button>
+                      <button
+                        type="button"
+                        onClick={verifySmsOtp}
+                        className="rounded-lg border border-blue-300 px-2.5 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-50"
+                      >
+                        Verify
+                      </button>
+                    </div>
+                    <p className={`mt-2 text-xs ${applicationForm.smsVerified ? 'text-green-700' : 'text-slate-600'}`}>
+                      {applicationForm.smsVerified ? 'Phone verified' : 'Phone not verified'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <label>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">Step 4: Phone number</span>
+                <input
+                  type="tel"
+                  placeholder="(217) 555-1234"
+                  value={applicationForm.phoneNumber}
+                  onChange={(event) =>
+                    setApplicationForm((prev) => ({ ...prev, phoneNumber: event.target.value, smsVerified: false }))
                   }
                   className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
                 />
               </label>
               <label>
-                <span className="mb-1.5 block text-sm font-medium text-slate-700">Available seats</span>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">Vehicle info (make/model)</span>
+                <input
+                  type="text"
+                  placeholder="Toyota Camry"
+                  value={applicationForm.vehicleInfo}
+                  onChange={(event) =>
+                    setApplicationForm((prev) => ({ ...prev, vehicleInfo: event.target.value }))
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
+                />
+              </label>
+
+              <label>
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">Seats available</span>
                 <input
                   type="number"
                   min="1"
@@ -2976,6 +3255,18 @@ function App() {
                   className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
                 />
               </label>
+
+              {applicationForm.driverTier === 'community' ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                  <p className="font-medium text-slate-800">Optional ID upload (coming soon)</p>
+                  <p className="mt-1 text-xs">Future feature placeholder for additional trust signals.</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                  Only UIUC students can access this tier.
+                </div>
+              )}
+
               <label className="md:col-span-2">
                 <span className="mb-1.5 block text-sm font-medium text-slate-700">Notes</span>
                 <textarea
@@ -2988,6 +3279,13 @@ function App() {
                   className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
                 />
               </label>
+
+              {applicationForm.driverTier === 'community' ? (
+                <div className="md:col-span-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                  Passengers should review driver details carefully.
+                </div>
+              ) : null}
+
               <div className="md:col-span-2">
                 <button
                   type="submit"
@@ -3028,11 +3326,25 @@ function App() {
                           <p className="mt-1 text-xs text-slate-600">
                             Coverage: All routes • Seats: {application.available_seats} • Submitted {formatMessageTime(application.created_at)}
                           </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${application.driver_tier === 'community' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {getDriverTierLabel(application.driver_tier)}
+                            </span>
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${application.email_verified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                              Email {application.email_verified ? 'verified' : 'not verified'}
+                            </span>
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${application.sms_verified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                              SMS {application.sms_verified ? 'verified' : 'not verified'}
+                            </span>
+                          </div>
                         </div>
                         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getApplicationStatusClass(application.status)}`}>
                           {application.status}
                         </span>
                       </div>
+                      {application.driver_tier === 'community' ? (
+                        <p className="mt-2 text-xs text-amber-700">Community tier: passengers should review driver details carefully.</p>
+                      ) : null}
                       {application.notes ? (
                         <p className="mt-2 text-sm text-slate-700">{application.notes}</p>
                       ) : null}
@@ -3075,6 +3387,17 @@ function App() {
                         <p className="mt-1 text-xs text-slate-600">
                           Total rides: {driver.totalRides} • Active rides: {driver.activeRides}
                         </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${driver.driverTier === 'community' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {getDriverTierLabel(driver.driverTier)}
+                          </span>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${driver.emailVerified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                            Email {driver.emailVerified ? '✓' : '✕'}
+                          </span>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${driver.smsVerified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                            SMS {driver.smsVerified ? '✓' : '✕'}
+                          </span>
+                        </div>
                       </div>
                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getApplicationStatusClass(driver.status)}`}>
                         {driver.status}
@@ -3600,6 +3923,17 @@ function App() {
                       <p className="mt-1 text-xs text-slate-600">
                         Coverage: All routes • Seats: {driver.available_seats}
                       </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${driver.driver_tier === 'community' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {getDriverTierLabel(driver.driver_tier)}
+                        </span>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${driver.email_verified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                          Email {driver.email_verified ? '✓' : '✕'}
+                        </span>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${driver.sms_verified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                          SMS {driver.sms_verified ? '✓' : '✕'}
+                        </span>
+                      </div>
                     </div>
                   ))}
 

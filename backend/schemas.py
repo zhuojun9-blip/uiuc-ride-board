@@ -126,7 +126,13 @@ class RiderRequestResponse(RiderRequestBase):
 # Driver Application Schemas
 class DriverApplicationBase(BaseModel):
     full_name: str
+    driver_tier: str = "uiuc_verified"
     primary_route: str
+    phone_number: str
+    vehicle_info: str
+    email_verified: bool = False
+    sms_verified: bool = False
+    id_upload_status: Optional[str] = None
     available_seats: int
     notes: Optional[str] = None
 
@@ -137,6 +143,12 @@ class DriverApplicationCreate(DriverApplicationBase):
 class DriverApplicationUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
+    driver_tier: Optional[str] = None
+    phone_number: Optional[str] = None
+    vehicle_info: Optional[str] = None
+    email_verified: Optional[bool] = None
+    sms_verified: Optional[bool] = None
+    id_upload_status: Optional[str] = None
     primary_route: Optional[str] = None
     available_seats: Optional[int] = None
     notes: Optional[str] = None
