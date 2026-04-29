@@ -60,11 +60,16 @@ API docs at `http://localhost:8000/docs`
 - `GET /auth/me` - Get current user profile
 
 ### Drivers
-- `POST /drivers/` - Create driver listing (requires auth)
+- `POST /drivers/` - Create driver listing (requires approved driver application)
 - `GET /drivers/` - List all active drivers (optional filter by route)
 - `GET /drivers/{id}` - Get specific driver
 - `PUT /drivers/{id}` - Update driver listing (owner only)
 - `DELETE /drivers/{id}` - De-activate driver listing (owner only)
+
+Driver listing behavior (enforced server-side):
+- Community drivers must complete SMS verification before posting (`403` if missing)
+- `price_per_seat` is editable before confirmation, then locked after any shared ride request reaches `confirmed` or `completed`
+- Driver preference tags are predefined-only values
 
 ### Rider Requests
 - `POST /requests/` - Create ride request (requires auth)
@@ -79,6 +84,29 @@ API docs at `http://localhost:8000/docs`
 - `GET /applications/{id}` - Get specific application (owner only)
 - `PUT /applications/{id}` - Update application (owner only)
 - `DELETE /applications/{id}` - Delete application (owner only)
+
+Application tier behavior:
+- `uiuc_verified` tier: requires `@illinois.edu` email and email verification
+- `community` tier: SMS verification is required for posting rides
+
+### Shared Rides
+- `POST /shared-rides/` - Create shared ride request (requires auth)
+- `GET /shared-rides/mine` - List rider-side shared ride requests
+- `GET /shared-rides/driver` - List driver-side shared ride requests
+- `PUT /shared-rides/{id}/status` - Update request status with role-based transition checks
+
+Shared ride statuses:
+- `pending`, `approved`, `rejected`, `confirmed`, `completed`, `cancelled`
+
+### Reviews
+- `POST /reviews/` - Submit a driver rating/review (eligible riders only)
+- `GET /reviews/driver/{driver_user_id}` - List reviews for a driver
+
+### Reports
+- `POST /reports/` - Submit report about a ride/driver
+- `GET /reports/mine` - List reporter's submitted reports
+- `GET /reports/admin/all` - Admin report queue
+- `PUT /reports/{id}/status` - Admin status update (`open`, `reviewing`, `resolved`)
 
 ### Messages
 - `POST /messages/` - Send message (requires auth)
@@ -111,6 +139,27 @@ const response = await fetch('http://localhost:8000/drivers/', {
 - **RiderRequest**: Ride requests posted by riders
 - **DriverApplication**: Applications from users wanting to become drivers
 - **Message**: User-to-user messages
+- **SharedRideRequest**: Seat request lifecycle between rider and driver
+- **RideReview**: Post-ride rating and feedback records
+- **RideReport**: Rider/driver incident reports for admin handling
+
+## Trust and Preferences
+
+Driver trust fields are system-controlled and included in driver responses:
+- `driver_tier`, `email_verified`, `sms_verified`, `trust_score`, `trust_level`
+- `rating_average`, `rating_count`, `ride_history_count`
+
+Driver-controlled preference tags are restricted to this exact list:
+- `Non-smoking`
+- `Quiet ride`
+- `Music allowed`
+- `Pet-friendly`
+- `Flexible pickup`
+
+Payload notes:
+- Use `preference_tags` (array of strings) in create/update driver listing requests
+- Unknown/custom tags are rejected with `400`
+- Legacy `labels` remains in schema for backward compatibility, but preference chips are sourced from `preference_tags`
 
 ## Deployment
 
