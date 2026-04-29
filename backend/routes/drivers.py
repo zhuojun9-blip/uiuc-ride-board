@@ -1,12 +1,57 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+import json
 from database import get_db
 from models import Driver, DriverApplication, RideReview, SharedRideRequest, User
 import schemas
 from auth import get_current_user
 
 router = APIRouter(prefix="/drivers", tags=["drivers"])
+
+ALLOWED_PREFERENCE_TAGS = [
+    "Non-smoking",
+    "Quiet ride",
+    "Music allowed",
+    "Pet-friendly",
+    "Flexible pickup",
+]
+
+
+def normalize_preference_tags(preference_tags: list[str] | None) -> list[str]:
+    if not preference_tags:
+        return []
+
+    normalized: list[str] = []
+    seen = set()
+    for tag in preference_tags:
+        if not isinstance(tag, str):
+            continue
+        cleaned = tag.strip()
+        if cleaned in ALLOWED_PREFERENCE_TAGS and cleaned not in seen:
+            seen.add(cleaned)
+            normalized.append(cleaned)
+
+    return normalized
+
+
+def parse_preference_tags(raw_labels: str | None) -> list[str]:
+    if not raw_labels:
+        return []
+
+    parsed_tags: list[str] = []
+    try:
+        loaded = json.loads(raw_labels)
+        if isinstance(loaded, list):
+            parsed_tags = [str(item).strip() for item in loaded]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed_tags = [item.strip() for item in str(raw_labels).split(",")]
+
+    return normalize_preference_tags(parsed_tags)
+
+
+def serialize_preference_tags(preference_tags: list[str]) -> str:
+    return json.dumps(preference_tags)
 
 
 def compute_driver_trust(application: DriverApplication | None, rating_average: float, rating_count: int, ride_history_count: int):
@@ -62,6 +107,7 @@ def serialize_driver(driver: Driver, db: Session):
     )
     ride_history_count = db.query(Driver).filter(Driver.user_id == driver.user_id).count()
     trust = compute_driver_trust(latest_application, rating_average, rating_count, ride_history_count)
+    preference_tags = parse_preference_tags(driver.labels)
 
     return schemas.DriverResponse(
         id=driver.id,
@@ -81,6 +127,7 @@ def serialize_driver(driver: Driver, db: Session):
         pickup_location=driver.pickup_location,
         skills=driver.skills,
         labels=driver.labels,
+        preference_tags=preference_tags,
         notes=driver.notes,
         rating_average=rating_average,
         rating_count=rating_count,
@@ -112,6 +159,7 @@ def build_driver_history_response(driver_user: User, rides: list[Driver]):
             pickup_location=ride.pickup_location,
             skills=ride.skills,
             labels=ride.labels,
+            preference_tags=parse_preference_tags(ride.labels),
             notes=ride.notes,
             is_active=ride.is_active,
             created_at=ride.created_at,
@@ -151,10 +199,32 @@ async def create_driver(
                 status_code=403,
                 detail="Your driver application must be approved by an admin before posting listings"
             )
+        if approved_application.driver_tier == "community" and not approved_application.sms_verified:
+            raise HTTPException(
+                status_code=403,
+                detail="SMS verification is required for community drivers before posting rides",
+            )
 
+    preference_tags = normalize_preference_tags(driver_data.preference_tags)
+    if len(preference_tags) != len(driver_data.preference_tags):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Preference tags must be selected from the predefined list: {', '.join(ALLOWED_PREFERENCE_TAGS)}",
+        )
+
+    payload = driver_data.dict()
+    payload["preference_tags"] = preference_tags
     db_driver = Driver(
         user_id=current_user.id,
-        **driver_data.dict()
+        route=payload["route"],
+        vehicle=payload["vehicle"],
+        available_seats=payload["available_seats"],
+        departure_time=payload["departure_time"],
+        price_per_seat=payload["price_per_seat"],
+        pickup_location=payload["pickup_location"],
+        skills=payload.get("skills"),
+        labels=serialize_preference_tags(payload["preference_tags"]),
+        notes=payload.get("notes"),
     )
     db.add(db_driver)
     db.commit()
@@ -236,6 +306,15 @@ async def update_driver(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     update_payload = driver_data.dict(exclude_unset=True)
+    if "preference_tags" in update_payload:
+        preference_tags = normalize_preference_tags(update_payload["preference_tags"])
+        if len(preference_tags) != len(update_payload["preference_tags"]):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Preference tags must be selected from the predefined list: {', '.join(ALLOWED_PREFERENCE_TAGS)}",
+            )
+        update_payload["labels"] = serialize_preference_tags(preference_tags)
+        del update_payload["preference_tags"]
     locked_fields_after_confirmation = {
         "price_per_seat",
         "departure_time",

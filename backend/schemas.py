@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -34,6 +34,7 @@ class DriverBase(BaseModel):
     pickup_location: str
     skills: Optional[str] = None
     labels: Optional[str] = None
+    preference_tags: list[str] = Field(default_factory=list)
     notes: Optional[str] = None
 
 class DriverCreate(DriverBase):
@@ -48,6 +49,7 @@ class DriverUpdate(BaseModel):
     pickup_location: Optional[str] = None
     skills: Optional[str] = None
     labels: Optional[str] = None
+    preference_tags: Optional[list[str]] = None
     notes: Optional[str] = None
 
 class DriverResponse(DriverBase):
@@ -63,6 +65,7 @@ class DriverResponse(DriverBase):
     rating_average: float = 0
     rating_count: int = 0
     ride_history_count: int = 0
+    preference_tags: list[str] = Field(default_factory=list)
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -82,6 +85,7 @@ class DriverHistoryEntry(BaseModel):
     pickup_location: str
     skills: Optional[str] = None
     labels: Optional[str] = None
+    preference_tags: list[str] = Field(default_factory=list)
     notes: Optional[str] = None
     is_active: bool
     created_at: datetime

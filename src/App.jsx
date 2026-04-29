@@ -22,6 +22,39 @@ import { useWebSocket } from './hooks/useWebSocket'
 const sampleDriverListings = []
 const sampleRiderRequests = []
 
+const ALLOWED_PREFERENCE_TAGS = [
+  'Non-smoking',
+  'Quiet ride',
+  'Music allowed',
+  'Pet-friendly',
+  'Flexible pickup',
+]
+
+const normalizePreferenceTags = (tags) => {
+  if (!Array.isArray(tags)) return []
+  const seen = new Set()
+  return tags
+    .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+    .filter((tag) => ALLOWED_PREFERENCE_TAGS.includes(tag) && !seen.has(tag) && seen.add(tag))
+}
+
+const parsePreferenceTags = (rawLabels, rawPreferenceTags = null) => {
+  if (Array.isArray(rawPreferenceTags)) {
+    return normalizePreferenceTags(rawPreferenceTags)
+  }
+
+  if (!rawLabels) return []
+  try {
+    const parsed = JSON.parse(rawLabels)
+    if (Array.isArray(parsed)) {
+      return normalizePreferenceTags(parsed)
+    }
+  } catch {
+  }
+
+  return normalizePreferenceTags(String(rawLabels).split(',').map((item) => item.trim()))
+}
+
 function LoginModal({ isOpen, onClose, onLogin }) {
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
@@ -316,7 +349,7 @@ function App() {
     seats: '2',
     pricePerSeat: '0',
     skills: '',
-    labels: '',
+    preferenceTags: [],
     departure: '',
     pickupLocation: '',
     notes: '',
@@ -334,7 +367,7 @@ function App() {
     seats: '1',
     pricePerSeat: '0',
     skills: '',
-    labels: '',
+    preferenceTags: [],
     departure: '',
     pickupLocation: '',
     notes: '',
@@ -422,6 +455,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('')
   const [activeUtilityPanel, setActiveUtilityPanel] = useState(null)
   const [showAllDriverListings, setShowAllDriverListings] = useState(false)
+  const [showCommunityDrivers, setShowCommunityDrivers] = useState(false)
   const [adminHistorySearchTerm, setAdminHistorySearchTerm] = useState('')
   const [showAllAdminDriverHistory, setShowAllAdminDriverHistory] = useState(false)
   const backendBaseUrl = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '')
@@ -1610,7 +1644,7 @@ function App() {
         departure_time: driverForm.departure,
         price_per_seat: pricePerSeat,
         skills: driverForm.skills,
-        labels: driverForm.labels,
+        preference_tags: driverForm.preferenceTags,
         pickup_location: driverForm.pickupLocation,
         notes: driverForm.notes,
       })
@@ -1627,7 +1661,7 @@ function App() {
         seats: '2',
         pricePerSeat: '0',
         skills: '',
-        labels: '',
+        preferenceTags: [],
         departure: '',
         pickupLocation: '',
         notes: '',
@@ -1767,7 +1801,7 @@ function App() {
       seats: String(driver.seats),
       pricePerSeat: String(driver.pricePerSeat || 0),
       skills: driver.skills || '',
-      labels: driver.labels || '',
+      preferenceTags: driver.preferenceTags || [],
       departure: driver.departure,
       pickupLocation: driver.pickupLocation || '',
       notes: driver.notesRaw || '',
@@ -1825,7 +1859,7 @@ function App() {
         departure_time: editingDriverForm.departure,
         price_per_seat: pricePerSeat,
         skills: editingDriverForm.skills,
-        labels: editingDriverForm.labels,
+        preference_tags: editingDriverForm.preferenceTags,
         pickup_location: editingDriverForm.pickupLocation,
         notes: editingDriverForm.notes,
       })
@@ -1999,6 +2033,39 @@ function App() {
     })
   }, [driverListings, searchTerm, selectedRoute, now])
 
+  const sortDriversByPriority = useCallback((drivers) => {
+    const getDepartureTimestamp = (value) => {
+      const parsed = new Date(value).getTime()
+      return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
+    }
+
+    return [...drivers].sort((left, right) => {
+      const leftRating = Number(left.ratingAverage || 0)
+      const rightRating = Number(right.ratingAverage || 0)
+      if (rightRating !== leftRating) return rightRating - leftRating
+
+      const leftSeats = Number(left.seats || 0)
+      const rightSeats = Number(right.seats || 0)
+      if (rightSeats !== leftSeats) return rightSeats - leftSeats
+
+      const leftPrice = Number(left.pricePerSeat || 0)
+      const rightPrice = Number(right.pricePerSeat || 0)
+      if (leftPrice !== rightPrice) return leftPrice - rightPrice
+
+      return getDepartureTimestamp(left.departure) - getDepartureTimestamp(right.departure)
+    })
+  }, [])
+
+  const uiucVerifiedDrivers = useMemo(
+    () => sortDriversByPriority(filteredDrivers.filter((driver) => driver.driverTier === 'uiuc_verified')),
+    [filteredDrivers, sortDriversByPriority]
+  )
+
+  const communityDrivers = useMemo(
+    () => sortDriversByPriority(filteredDrivers.filter((driver) => driver.driverTier !== 'uiuc_verified')),
+    [filteredDrivers, sortDriversByPriority]
+  )
+
   const upcomingDriverCount = useMemo(() => {
     return driverListings.filter((driver) => {
       const departureTimestamp = driver.departure ? new Date(driver.departure).getTime() : NaN
@@ -2017,10 +2084,15 @@ function App() {
     return searchTerm.trim().length > 0 || hasRouteFilter
   }, [searchTerm, selectedRoute])
 
-  const visibleDrivers = useMemo(() => {
-    if (showAllDriverListings) return filteredDrivers
-    return filteredDrivers.slice(0, 6)
-  }, [filteredDrivers, showAllDriverListings])
+  const visibleUiucDrivers = useMemo(() => {
+    if (showAllDriverListings) return uiucVerifiedDrivers
+    return uiucVerifiedDrivers.slice(0, 6)
+  }, [uiucVerifiedDrivers, showAllDriverListings])
+
+  const visibleCommunityDrivers = useMemo(() => {
+    if (showAllDriverListings) return communityDrivers
+    return communityDrivers.slice(0, 6)
+  }, [communityDrivers, showAllDriverListings])
 
   const filteredRiderRequests = useMemo(() => {
     return riderRequests.filter((request) => {
@@ -2047,11 +2119,26 @@ function App() {
     return filteredAdminDriverOverview.slice(0, 5)
   }, [filteredAdminDriverOverview, showAllAdminDriverHistory])
 
+  const approvedPostingApplication = useMemo(() => {
+    if (!user || user.is_admin) return null
+    const approved = myApplications.filter((application) => application.status === 'approved')
+    if (!approved.length) return null
+    return approved.sort((left, right) => new Date(right.updated_at) - new Date(left.updated_at))[0]
+  }, [myApplications, user])
+
+  const requiresSmsVerificationForPosting = useMemo(() => {
+    if (!approvedPostingApplication) return false
+    return (
+      approvedPostingApplication.driver_tier === 'community' &&
+      !approvedPostingApplication.sms_verified
+    )
+  }, [approvedPostingApplication])
+
   const canPostDriverListing = useMemo(() => {
     if (!user) return false
     if (user.is_admin) return true
-    return myApplications.some((application) => application.status === 'approved')
-  }, [myApplications, user])
+    return Boolean(approvedPostingApplication) && !requiresSmsVerificationForPosting
+  }, [approvedPostingApplication, requiresSmsVerificationForPosting, user])
 
   const approvedDriverDirectory = useMemo(() => {
     const approved = adminApplications.filter((application) => application.status === 'approved')
@@ -2185,7 +2272,15 @@ function App() {
     return 'bg-slate-200 text-slate-700'
   }
 
+  const togglePreferenceTag = (currentTags, tag) => {
+    if (currentTags.includes(tag)) {
+      return currentTags.filter((item) => item !== tag)
+    }
+    return [...currentTags, tag]
+  }
+
   function mapDriverListing(item, fallback = {}) {
+    const preferenceTags = parsePreferenceTags(item.labels, item.preference_tags)
     return {
       id: item.id,
       userId: item.user_id,
@@ -2195,7 +2290,7 @@ function App() {
       seats: item.available_seats,
       pricePerSeat: item.price_per_seat || 0,
       skills: item.skills || '',
-      labels: item.labels || '',
+      preferenceTags,
       ratingAverage: item.rating_average || 0,
       ratingCount: item.rating_count || 0,
       rideHistoryCount: item.ride_history_count || 0,
@@ -2649,7 +2744,9 @@ function App() {
           <h3 className="mb-3 text-lg font-semibold text-slate-900">Post a Driver Listing</h3>
           {!canPostDriverListing ? (
             <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-              Your driver application must be approved by an admin before you can post listings.
+              {requiresSmsVerificationForPosting
+                ? 'SMS verification is required for community drivers before posting rides.'
+                : 'Your driver application must be approved by an admin before you can post listings.'}
             </div>
           ) : null}
           <form className="grid gap-3 md:grid-cols-2" onSubmit={handleCreateDriverListing}>
@@ -2728,18 +2825,34 @@ function App() {
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
               />
             </label>
-            <label>
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">Driver Labels</span>
-              <input
-                type="text"
-                value={driverForm.labels}
-                onChange={(event) =>
-                  setDriverForm((prev) => ({ ...prev, labels: event.target.value }))
-                }
-                placeholder="On-time, Quiet ride, Pet-friendly"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none ring-blue-200 transition focus:ring"
-              />
-            </label>
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Ride Preferences</span>
+              <p className="mb-2 text-xs text-slate-500">Comfort preferences set by driver (not trust badges).</p>
+              <div className="flex flex-wrap gap-1.5">
+                {ALLOWED_PREFERENCE_TAGS.map((tag) => {
+                  const selected = driverForm.preferenceTags.includes(tag)
+                  return (
+                    <button
+                      key={`create-pref-${tag}`}
+                      type="button"
+                      onClick={() =>
+                        setDriverForm((prev) => ({
+                          ...prev,
+                          preferenceTags: togglePreferenceTag(prev.preferenceTags, tag),
+                        }))
+                      }
+                      className={`rounded-full border px-2 py-1 text-xs transition ${
+                        selected
+                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                          : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
             <label className="md:col-span-2">
               <span className="mb-1.5 block text-sm font-medium text-slate-700">Pickup location</span>
               <input
@@ -2770,7 +2883,11 @@ function App() {
                 disabled={isSubmittingDriver || !canPostDriverListing}
                 className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
               >
-                {!canPostDriverListing ? 'Approval required' : isSubmittingDriver ? 'Posting...' : 'Post Listing'}
+                {!canPostDriverListing
+                  ? (requiresSmsVerificationForPosting ? 'SMS verification required' : 'Approval required')
+                  : isSubmittingDriver
+                  ? 'Posting...'
+                  : 'Post Listing'}
               </button>
             </div>
           </form>
@@ -3379,10 +3496,24 @@ function App() {
         ) : null}
 
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-2xl font-semibold text-slate-900">Driver Listings</h2>
+          <h2 className="text-2xl font-semibold text-slate-900">UIUC Verified Drivers</h2>
           <span className="text-sm text-slate-500">
-            {visibleDrivers.length} / {filteredDrivers.length} result{filteredDrivers.length === 1 ? '' : 's'}
+            {visibleUiucDrivers.length} / {uiucVerifiedDrivers.length} result{uiucVerifiedDrivers.length === 1 ? '' : 's'}
           </span>
+        </div>
+
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
+          <p className="text-sm text-slate-700">Need more options? Include community drivers.</p>
+          <button
+            onClick={() => setShowCommunityDrivers((prev) => !prev)}
+            className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+              showCommunityDrivers
+                ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            {showCommunityDrivers ? 'Hide Community Drivers' : 'Show Community Drivers'}
+          </button>
         </div>
 
         {isLoadingMarketplace ? (
@@ -3392,7 +3523,7 @@ function App() {
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {visibleDrivers.map((driver) => {
+          {visibleUiucDrivers.map((driver) => {
             const seatCount = Number(driver.seats)
             const hasSeatCount = Number.isFinite(seatCount) && seatCount >= 0
             const parsedPrice = Number(driver.pricePerSeat)
@@ -3460,6 +3591,12 @@ function App() {
                       </span>
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getTrustLevelClass(driver.trustLevel)}`}>
                         {getTrustLevelLabel(driver.trustLevel)} • {driver.trustScore}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${driver.emailVerified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                        UIUC Email {driver.emailVerified ? '✓' : '✕'}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${driver.smsVerified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'}`}>
+                        Phone {driver.smsVerified ? '✓' : '✕'}
                       </span>
                     </div>
 
@@ -3538,15 +3675,33 @@ function App() {
                       placeholder="Skills / characteristics"
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
                     />
-                    <input
-                      type="text"
-                      value={editingDriverForm.labels}
-                      onChange={(event) =>
-                        setEditingDriverForm((prev) => ({ ...prev, labels: event.target.value }))
-                      }
-                      placeholder="Labels"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
-                    />
+                    <div>
+                      <p className="mb-1 text-xs font-semibold text-slate-700">Ride Preferences</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {ALLOWED_PREFERENCE_TAGS.map((tag) => {
+                          const selected = editingDriverForm.preferenceTags.includes(tag)
+                          return (
+                            <button
+                              key={`edit-pref-${driver.id}-${tag}`}
+                              type="button"
+                              onClick={() =>
+                                setEditingDriverForm((prev) => ({
+                                  ...prev,
+                                  preferenceTags: togglePreferenceTag(prev.preferenceTags, tag),
+                                }))
+                              }
+                              className={`rounded-full border px-2 py-1 text-xs transition ${
+                                selected
+                                  ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                  : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              {tag}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                     <input
                       type="text"
                       value={editingDriverForm.pickupLocation}
@@ -3583,8 +3738,28 @@ function App() {
                         <span className="font-medium">Cost:</span> ${parsedPrice.toFixed(2)} per seat
                       </p>
                     ) : null}
-                    {driver.skills ? <p>Skills: {driver.skills}</p> : null}
-                    {driver.labels ? <p>Labels: {driver.labels}</p> : null}
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Verification & Trust</p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {driver.ratingCount > 0
+                          ? `⭐ ${Number(driver.ratingAverage || 0).toFixed(1)} (${driver.ratingCount}) • ${driver.rideHistoryCount} rides`
+                          : `${driver.rideHistoryCount} rides • New ratings pending`}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ride Preferences</p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {driver.preferenceTags?.length > 0 ? (
+                          driver.preferenceTags.map((tag) => (
+                            <span key={`pref-${driver.id}-${tag}`} className="rounded-full border border-slate-300 px-2 py-0.5 text-xs text-slate-700">
+                              {tag}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-slate-500">No preferences specified</span>
+                        )}
+                      </div>
+                    </div>
                     {driver.note ? <p>{driver.note}</p> : null}
                   </>
                 )}
@@ -3663,7 +3838,10 @@ function App() {
                   <p className="mt-1"><span className="font-medium">Seats:</span> {driver.seats}</p>
                   <p className="mt-1"><span className="font-medium">Cost:</span> ${Number(driver.pricePerSeat || 0).toFixed(2)} per seat</p>
                   {driver.skills ? <p className="mt-1"><span className="font-medium">Skills:</span> {driver.skills}</p> : null}
-                  {driver.labels ? <p className="mt-1"><span className="font-medium">Labels:</span> {driver.labels}</p> : null}
+                  <div className="mt-1">
+                    <span className="font-medium">Ride Preferences:</span>{' '}
+                    {driver.preferenceTags?.length > 0 ? driver.preferenceTags.join(', ') : 'No preferences specified'}
+                  </div>
                   {driver.notesRaw ? <p className="mt-1"><span className="font-medium">Notes:</span> {driver.notesRaw}</p> : null}
                 </div>
               ) : null}
@@ -3824,22 +4002,110 @@ function App() {
           })}
         </div>
 
-        {filteredDrivers.length > 6 ? (
+        {uiucVerifiedDrivers.length > 6 ? (
           <div className="mt-4">
             <button
               onClick={() => setShowAllDriverListings((prev) => !prev)}
               className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
             >
-              {showAllDriverListings ? 'Show fewer listings' : `Show more listings (${filteredDrivers.length - visibleDrivers.length} more)`}
+              {showAllDriverListings ? 'Show fewer listings' : `Show more listings (${uiucVerifiedDrivers.length - visibleUiucDrivers.length} more)`}
             </button>
           </div>
         ) : null}
 
-        {filteredDrivers.length === 0 ? (
+        {uiucVerifiedDrivers.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
             {upcomingDriverCount === 0 && !hasActiveDriverFilter
-              ? 'No upcoming driver listings right now.'
-              : 'No listings matched your search. Try a different route or keyword.'}
+              ? 'No upcoming UIUC verified driver listings right now. You can enable Community Drivers to see more options.'
+              : 'No UIUC verified listings matched your search. Try a different route or keyword.'}
+          </div>
+        ) : null}
+
+        {showCommunityDrivers ? (
+          <div className="mt-8">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-slate-900">Community Drivers</h3>
+              <span className="text-sm text-slate-500">
+                {visibleCommunityDrivers.length} / {communityDrivers.length} result{communityDrivers.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+              These drivers are not affiliated with UIUC. Please review carefully.
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {visibleCommunityDrivers.map((driver) => (
+                <motion.article
+                  key={`community-${driver.id}`}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                  {...cardMotion}
+                >
+                  <AvatarName
+                    name={driver.name}
+                    avatarUrl={driver.avatarUrl}
+                    resolveAvatarUrl={resolveAvatarUrl}
+                    avatarClassName="h-11 w-11"
+                    nameClassName="text-lg font-semibold text-slate-900"
+                  />
+                  <p className="mt-2 text-sm font-medium text-slate-800">{driver.route}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                      Community Driver
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getTrustLevelClass(driver.trustLevel)}`}>
+                      {getTrustLevelLabel(driver.trustLevel)} • {driver.trustScore}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-600">
+                    Verification & Trust: {driver.smsVerified ? 'Phone Verified' : 'Phone Not Verified'}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {driver.preferenceTags?.length > 0 ? (
+                      driver.preferenceTags.map((tag) => (
+                        <span key={`community-pref-${driver.id}-${tag}`} className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700">
+                          {tag}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-slate-500">No preferences specified</span>
+                    )}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={() => handleToggleContactDraft(driver)}
+                      className="rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                    >
+                      Contact
+                    </button>
+                    <button
+                      onClick={() => handleToggleDriverDetails(driver.id)}
+                      className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      {expandedDriverDetailsId === driver.id ? 'Hide Details' : 'View Details'}
+                    </button>
+                  </div>
+                </motion.article>
+              ))}
+            </div>
+
+            {communityDrivers.length > 6 ? (
+              <div className="mt-4">
+                <button
+                  onClick={() => setShowAllDriverListings((prev) => !prev)}
+                  className="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  {showAllDriverListings
+                    ? 'Show fewer community listings'
+                    : `Show more community listings (${communityDrivers.length - visibleCommunityDrivers.length} more)`}
+                </button>
+              </div>
+            ) : null}
+
+            {communityDrivers.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">
+                No community listings matched your search.
+              </div>
+            ) : null}
           </div>
         ) : null}
 
