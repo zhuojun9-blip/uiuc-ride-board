@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from database import get_db
-from models import Driver, DriverApplication, RideReview, User
+from models import Driver, DriverApplication, RideReview, SharedRideRequest, User
 import schemas
 from auth import get_current_user
 
@@ -185,7 +185,34 @@ async def update_driver(
     if driver.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    for key, value in driver_data.dict(exclude_unset=True).items():
+    update_payload = driver_data.dict(exclude_unset=True)
+    locked_fields_after_confirmation = {
+        "price_per_seat",
+        "departure_time",
+        "available_seats",
+        "pickup_location",
+        "notes",
+    }
+
+    changed_locked_fields = {
+        key
+        for key, value in update_payload.items()
+        if key in locked_fields_after_confirmation and getattr(driver, key) != value
+    }
+
+    if changed_locked_fields:
+        has_confirmed_request = db.query(SharedRideRequest).filter(
+            SharedRideRequest.driver_listing_id == driver.id,
+            SharedRideRequest.status.in_(["confirmed", "completed"]),
+        ).first()
+
+        if has_confirmed_request:
+            raise HTTPException(
+                status_code=400,
+                detail="Price, departure time, available seats, pickup location, and notes can only be edited before a ride is confirmed",
+            )
+
+    for key, value in update_payload.items():
         setattr(driver, key, value)
 
     db.commit()

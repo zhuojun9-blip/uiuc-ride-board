@@ -378,8 +378,6 @@ function App() {
   const [reportDrafts, setReportDrafts] = useState({})
   const [isSubmittingReportId, setIsSubmittingReportId] = useState(null)
   const [expandedDriverDetailsId, setExpandedDriverDetailsId] = useState(null)
-  const [contactDrafts, setContactDrafts] = useState({})
-  const [isSendingContactId, setIsSendingContactId] = useState(null)
   const [adminReports, setAdminReports] = useState([])
   const [isLoadingAdminReports, setIsLoadingAdminReports] = useState(false)
   const [isUpdatingAdminReportId, setIsUpdatingAdminReportId] = useState(null)
@@ -949,6 +947,14 @@ function App() {
     )
   }, [mySharedRideRequests, user])
 
+  const lockedDriverListingIds = useMemo(() => {
+    return new Set(
+      driverSharedRideRequests
+        .filter((request) => ['confirmed', 'completed'].includes(request.status))
+        .map((request) => request.driver_listing_id)
+    )
+  }, [driverSharedRideRequests])
+
   const adminChatConversations = useMemo(() => {
     const conversationMap = new Map()
 
@@ -1068,7 +1074,7 @@ function App() {
     return true
   }
 
-  const handleContactDriver = async (driver, customBody = '') => {
+  const handleContactDriver = async (driver) => {
     if (!requireAuth()) return
     if (!driver.userId || driver.userId === user.id) {
       addNotification({
@@ -1079,34 +1085,73 @@ function App() {
       return
     }
 
+    const defaultBody = `Hi! I am interested in your ${driver.route} ride (${driver.departure}).`
+
     try {
-      setIsSendingContactId(driver.id)
-      const trimmedCustomBody = (customBody || '').trim()
-      const defaultBody = `Hi! I am interested in your ${driver.route} ride (${driver.departure}).`
-      await messageAPI.sendMessage(
-        driver.userId,
-        `Ride inquiry: ${driver.route}`,
-        trimmedCustomBody || defaultBody
+      const existing = mySharedRideRequests.find(
+        (request) =>
+          request.driver_listing_id === driver.id &&
+          !['rejected', 'cancelled', 'completed'].includes(request.status)
       )
+
+      if (existing) {
+        setSelectedConversationId(existing.id)
+      } else {
+        const createdRequest = await sharedRideAPI.createRequest({
+          driver_listing_id: driver.id,
+          seats_requested: 1,
+          message: '',
+        })
+
+        try {
+          await sendThreadSystemMessage(
+            createdRequest,
+            `${user.name || 'A rider'} sent a request`
+          )
+        } catch {
+        }
+
+        setSelectedConversationId(createdRequest.id)
+      }
+
+      setConversationDraft(defaultBody)
+      setActiveUtilityPanel('messages')
+      await Promise.all([loadSharedRideRequests(), loadMessages()])
+
       addNotification({
         type: 'success',
-        title: 'Message sent',
-        message: 'Your interest was sent to the driver.',
+        title: 'Connected to message',
+        message: 'You are now in the driver conversation thread.',
       })
-      setContactDrafts((prev) => ({
-        ...prev,
-        [driver.id]: { isOpen: false, body: '' },
-      }))
-      setActiveUtilityPanel('messages')
-      loadMessages()
     } catch (error) {
       addNotification({
-        type: 'error',
-        title: 'Could not send message',
-        message: error.message || 'Please try again.',
+        type: 'warning',
+        title: 'Using existing request',
+        message:
+          error.message?.includes('active shared ride request')
+            ? 'Opening your existing ride conversation thread.'
+            : error.message || 'Please try again.',
       })
+
+      if (error.message?.includes('active shared ride request')) {
+        try {
+          const mine = await sharedRideAPI.getMyRequests()
+          setMySharedRideRequests(mine)
+          const existing = mine.find(
+            (request) =>
+              request.driver_listing_id === driver.id &&
+              !['rejected', 'cancelled', 'completed'].includes(request.status)
+          )
+          if (existing) {
+            setSelectedConversationId(existing.id)
+            setConversationDraft(defaultBody)
+            setActiveUtilityPanel('messages')
+            loadMessages()
+          }
+        } catch {
+        }
+      }
     } finally {
-      setIsSendingContactId(null)
     }
   }
 
@@ -1115,26 +1160,7 @@ function App() {
   }
 
   const handleToggleContactDraft = (driver) => {
-    if (!requireAuth()) return
-    if (!driver.userId || driver.userId === user?.id) {
-      addNotification({
-        type: 'warning',
-        title: 'Contact unavailable',
-        message: 'This listing cannot be contacted from this account.',
-      })
-      return
-    }
-
-    setContactDrafts((prev) => {
-      const existing = prev[driver.id] || { isOpen: false, body: '' }
-      return {
-        ...prev,
-        [driver.id]: {
-          isOpen: !existing.isOpen,
-          body: existing.body,
-        },
-      }
-    })
+    handleContactDriver(driver)
   }
 
   const handleOfferRide = async (request) => {
@@ -1739,6 +1765,15 @@ function App() {
   const handleEditDriverListing = async (driver) => {
     if (!requireAuth()) return
     if (driver.userId !== user?.id && !user?.is_admin) return
+
+    if (lockedDriverListingIds.has(driver.id)) {
+      addNotification({
+        type: 'warning',
+        title: 'Editing locked',
+        message: 'Price, departure time, seats, pickup location, and notes can only be edited before a ride is confirmed.',
+      })
+      return
+    }
 
     setEditingDriverId(driver.id)
     setEditingDriverForm({
@@ -2553,7 +2588,7 @@ function App() {
               />
             </label>
             <label>
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">Cost per seat ($)</span>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Price per seat (can update before booking)</span>
               <input
                 type="number"
                 min="0"
@@ -3298,7 +3333,13 @@ function App() {
                       <>
                         <button
                           onClick={() => handleEditDriverListing(driver)}
+                          disabled={lockedDriverListingIds.has(driver.id)}
                           className="rounded-lg border border-blue-300 px-3.5 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50"
+                          title={
+                            lockedDriverListingIds.has(driver.id)
+                              ? 'This listing has a confirmed ride and can no longer be edited.'
+                              : undefined
+                          }
                         >
                           Edit
                         </button>
@@ -3332,47 +3373,6 @@ function App() {
                   {driver.skills ? <p className="mt-1"><span className="font-medium">Skills:</span> {driver.skills}</p> : null}
                   {driver.labels ? <p className="mt-1"><span className="font-medium">Labels:</span> {driver.labels}</p> : null}
                   {driver.notesRaw ? <p className="mt-1"><span className="font-medium">Notes:</span> {driver.notesRaw}</p> : null}
-                </div>
-              ) : null}
-
-              {contactDrafts[driver.id]?.isOpen ? (
-                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs font-semibold text-slate-700">Message driver</p>
-                  <textarea
-                    rows="2"
-                    value={contactDrafts[driver.id]?.body || ''}
-                    onChange={(event) =>
-                      setContactDrafts((prev) => ({
-                        ...prev,
-                        [driver.id]: {
-                          isOpen: true,
-                          body: event.target.value,
-                        },
-                      }))
-                    }
-                    placeholder={`Hi! I am interested in your ${driver.route} ride (${driver.departure}).`}
-                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-200 transition focus:ring"
-                  />
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => handleContactDriver(driver, contactDrafts[driver.id]?.body || '')}
-                      disabled={isSendingContactId === driver.id}
-                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
-                    >
-                      {isSendingContactId === driver.id ? 'Sending...' : 'Send'}
-                    </button>
-                    <button
-                      onClick={() =>
-                        setContactDrafts((prev) => ({
-                          ...prev,
-                          [driver.id]: { isOpen: false, body: prev[driver.id]?.body || '' },
-                        }))
-                      }
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      Cancel
-                    </button>
-                  </div>
                 </div>
               ) : null}
 
