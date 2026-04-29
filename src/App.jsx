@@ -537,25 +537,7 @@ function App() {
 
         if (!isMounted) return
 
-        const mappedDrivers = drivers.map((driver) => ({
-          id: driver.id,
-          userId: driver.user_id,
-          name: driver.user_name || `Driver #${driver.id}`,
-          avatarUrl: driver.user_avatar_url || '',
-          route: driver.route,
-          seats: driver.available_seats,
-          pricePerSeat: driver.price_per_seat || 0,
-          skills: driver.skills || '',
-          labels: driver.labels || '',
-          ratingAverage: driver.rating_average || 0,
-          ratingCount: driver.rating_count || 0,
-          rideHistoryCount: driver.ride_history_count || 0,
-          departure: driver.departure_time,
-          vehicle: driver.vehicle,
-          pickupLocation: driver.pickup_location || '',
-          notesRaw: driver.notes || '',
-          note: [driver.pickup_location, driver.notes].filter(Boolean).join(' • '),
-        }))
+        const mappedDrivers = drivers.map((driver) => mapDriverListing(driver))
 
         const mappedRequests = requests.map((request) => ({
           id: request.id,
@@ -1207,25 +1189,7 @@ function App() {
 
   const refreshDriverListings = async () => {
     const drivers = await driverAPI.getListings()
-    const mappedDrivers = drivers.map((item) => ({
-      id: item.id,
-      userId: item.user_id,
-      name: item.user_name || `Driver #${item.id}`,
-      avatarUrl: item.user_avatar_url || '',
-      route: item.route,
-      seats: item.available_seats,
-      pricePerSeat: item.price_per_seat || 0,
-      skills: item.skills || '',
-      labels: item.labels || '',
-      ratingAverage: item.rating_average || 0,
-      ratingCount: item.rating_count || 0,
-      rideHistoryCount: item.ride_history_count || 0,
-      departure: item.departure_time,
-      vehicle: item.vehicle,
-      pickupLocation: item.pickup_location || '',
-      notesRaw: item.notes || '',
-      note: [item.pickup_location, item.notes].filter(Boolean).join(' • '),
-    }))
+    const mappedDrivers = drivers.map((item) => mapDriverListing(item))
     setDriverListings(mappedDrivers)
   }
 
@@ -1521,24 +1485,7 @@ function App() {
       })
 
       const drivers = await driverAPI.getListings()
-      const mappedDrivers = drivers.map((item) => ({
-        id: item.id,
-        userId: item.user_id,
-        name: item.user_name || `Driver #${item.id}`,
-        route: item.route,
-        seats: item.available_seats,
-        pricePerSeat: item.price_per_seat || 0,
-        skills: item.skills || '',
-        labels: item.labels || '',
-        ratingAverage: item.rating_average || 0,
-        ratingCount: item.rating_count || 0,
-        rideHistoryCount: item.ride_history_count || 0,
-        departure: item.departure_time,
-        vehicle: item.vehicle,
-        pickupLocation: item.pickup_location || '',
-        notesRaw: item.notes || '',
-        note: [item.pickup_location, item.notes].filter(Boolean).join(' • '),
-      }))
+      const mappedDrivers = drivers.map((item) => mapDriverListing(item))
       setDriverListings(mappedDrivers)
     } catch (error) {
       addNotification({
@@ -1668,25 +1615,10 @@ function App() {
         notes: driverForm.notes,
       })
 
-      const mappedDriver = {
-        id: created.id,
-        userId: created.user_id,
-        name: created.user_name || user?.name || `Driver #${created.id}`,
-        avatarUrl: created.user_avatar_url || user?.avatar_url || '',
-        route: created.route,
-        seats: created.available_seats,
-        pricePerSeat: created.price_per_seat || 0,
-        skills: created.skills || '',
-        labels: created.labels || '',
-        ratingAverage: created.rating_average || 0,
-        ratingCount: created.rating_count || 0,
-        rideHistoryCount: created.ride_history_count || 0,
-        departure: created.departure_time,
-        vehicle: created.vehicle,
-        pickupLocation: created.pickup_location || '',
-        notesRaw: created.notes || '',
-        note: [created.pickup_location, created.notes].filter(Boolean).join(' • '),
-      }
+      const mappedDriver = mapDriverListing(created, {
+        name: user?.name || `Driver #${created.id}`,
+        avatarUrl: user?.avatar_url || '',
+      })
 
       setDriverListings((prev) => [mappedDriver, ...prev])
       setDriverForm({
@@ -1903,21 +1835,10 @@ function App() {
           item.id === driverId
             ? {
                 ...item,
-                name: updated.user_name || item.name,
-                avatarUrl: updated.user_avatar_url || item.avatarUrl || '',
-                route: updated.route,
-                vehicle: updated.vehicle,
-                seats: updated.available_seats,
-                pricePerSeat: updated.price_per_seat || 0,
-                skills: updated.skills || '',
-                labels: updated.labels || '',
-                ratingAverage: updated.rating_average || 0,
-                ratingCount: updated.rating_count || 0,
-                rideHistoryCount: updated.ride_history_count || 0,
-                departure: updated.departure_time,
-                pickupLocation: updated.pickup_location || '',
-                notesRaw: updated.notes || '',
-                note: [updated.pickup_location, updated.notes].filter(Boolean).join(' • '),
+                ...mapDriverListing(updated, {
+                  name: item.name,
+                  avatarUrl: item.avatarUrl || '',
+                }),
               }
             : item
         )
@@ -2250,6 +2171,45 @@ function App() {
   const getDriverTierLabel = (tier) => {
     if (tier === 'community') return 'Community Driver (Limited Verification)'
     return 'UIUC Verified Driver'
+  }
+
+  const getTrustLevelLabel = (level) => {
+    if (level === 'high') return 'High Trust'
+    if (level === 'medium') return 'Medium Trust'
+    return 'Low Trust'
+  }
+
+  const getTrustLevelClass = (level) => {
+    if (level === 'high') return 'bg-green-100 text-green-700'
+    if (level === 'medium') return 'bg-amber-100 text-amber-700'
+    return 'bg-slate-200 text-slate-700'
+  }
+
+  function mapDriverListing(item, fallback = {}) {
+    return {
+      id: item.id,
+      userId: item.user_id,
+      name: item.user_name || fallback.name || `Driver #${item.id}`,
+      avatarUrl: item.user_avatar_url || fallback.avatarUrl || '',
+      route: item.route,
+      seats: item.available_seats,
+      pricePerSeat: item.price_per_seat || 0,
+      skills: item.skills || '',
+      labels: item.labels || '',
+      ratingAverage: item.rating_average || 0,
+      ratingCount: item.rating_count || 0,
+      rideHistoryCount: item.ride_history_count || 0,
+      departure: item.departure_time,
+      vehicle: item.vehicle,
+      pickupLocation: item.pickup_location || '',
+      notesRaw: item.notes || '',
+      note: [item.pickup_location, item.notes].filter(Boolean).join(' • '),
+      driverTier: item.driver_tier || 'community',
+      emailVerified: Boolean(item.email_verified),
+      smsVerified: Boolean(item.sms_verified),
+      trustScore: Number(item.trust_score || 0),
+      trustLevel: item.trust_level || 'low',
+    }
   }
 
   const sendEmailVerificationOtp = () => {
@@ -3492,6 +3452,15 @@ function App() {
                           {seatCount} seat{seatCount === 1 ? '' : 's'} left
                         </span>
                       ) : null}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${driver.driverTier === 'community' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {getDriverTierLabel(driver.driverTier)}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getTrustLevelClass(driver.trustLevel)}`}>
+                        {getTrustLevelLabel(driver.trustLevel)} • {driver.trustScore}
+                      </span>
                     </div>
 
                     {activitySignal ? (

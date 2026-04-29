@@ -9,20 +9,70 @@ from auth import get_current_user
 router = APIRouter(prefix="/drivers", tags=["drivers"])
 
 
+def compute_driver_trust(application: DriverApplication | None, rating_average: float, rating_count: int, ride_history_count: int):
+    driver_tier = (application.driver_tier if application and application.driver_tier else "community").strip().lower()
+    email_verified = bool(application.email_verified) if application else False
+    sms_verified = bool(application.sms_verified) if application else False
+
+    email_score = 0
+    if email_verified and driver_tier == "uiuc_verified":
+        email_score = 30
+    elif email_verified:
+        email_score = 15
+
+    phone_score = 25 if sms_verified else 0
+    rating_score = min(25, (rating_average / 5) * 18 + min(rating_count, 10) * 0.7) if rating_count > 0 else 0
+    history_score = min(20, max(ride_history_count, 0) * 2)
+
+    trust_score = int(round(email_score + phone_score + rating_score + history_score))
+
+    is_high_trust = (
+        driver_tier == "uiuc_verified"
+        and email_verified
+        and sms_verified
+        and rating_count >= 3
+        and rating_average >= 4.5
+        and trust_score >= 75
+    )
+    if is_high_trust:
+        trust_level = "high"
+    elif trust_score >= 45 or ((email_verified or sms_verified) and rating_count == 0 and trust_score >= 35):
+        trust_level = "medium"
+    else:
+        trust_level = "low"
+
+    return {
+        "driver_tier": driver_tier,
+        "email_verified": email_verified,
+        "sms_verified": sms_verified,
+        "trust_score": trust_score,
+        "trust_level": trust_level,
+    }
+
+
 def serialize_driver(driver: Driver, db: Session):
     driver_owner = db.query(User).filter(User.id == driver.user_id).first()
+    latest_application = db.query(DriverApplication).filter(
+        DriverApplication.user_id == driver.user_id
+    ).order_by(DriverApplication.updated_at.desc()).first()
     reviews = db.query(RideReview).filter(RideReview.driver_user_id == driver.user_id).all()
     rating_count = len(reviews)
     rating_average = (
         sum(review.rating for review in reviews) / rating_count if rating_count else 0
     )
     ride_history_count = db.query(Driver).filter(Driver.user_id == driver.user_id).count()
+    trust = compute_driver_trust(latest_application, rating_average, rating_count, ride_history_count)
 
     return schemas.DriverResponse(
         id=driver.id,
         user_id=driver.user_id,
         user_name=driver_owner.name if driver_owner else None,
         user_avatar_url=driver_owner.avatar_url if driver_owner else None,
+        driver_tier=trust["driver_tier"],
+        email_verified=trust["email_verified"],
+        sms_verified=trust["sms_verified"],
+        trust_score=trust["trust_score"],
+        trust_level=trust["trust_level"],
         route=driver.route,
         vehicle=driver.vehicle,
         available_seats=driver.available_seats,

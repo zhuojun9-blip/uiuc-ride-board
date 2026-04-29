@@ -55,6 +55,11 @@ class DriverResponse(DriverBase):
     user_id: int
     user_name: Optional[str] = None
     user_avatar_url: Optional[str] = None
+    driver_tier: Optional[str] = None
+    email_verified: bool = False
+    sms_verified: bool = False
+    trust_score: int = 0
+    trust_level: str = "low"
     rating_average: float = 0
     rating_count: int = 0
     ride_history_count: int = 0
