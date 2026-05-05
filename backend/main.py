@@ -27,6 +27,9 @@ def initialize_database() -> bool:
                     text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT")
                 )
                 connection.execute(
+                    text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo BOOLEAN DEFAULT FALSE")
+                )
+                connection.execute(
                     text("ALTER TABLE drivers ADD COLUMN IF NOT EXISTS price_per_seat DOUBLE PRECISION DEFAULT 0")
                 )
                 connection.execute(
@@ -34,6 +37,9 @@ def initialize_database() -> bool:
                 )
                 connection.execute(
                     text("ALTER TABLE drivers ADD COLUMN IF NOT EXISTS labels TEXT")
+                )
+                connection.execute(
+                    text("ALTER TABLE drivers ADD COLUMN IF NOT EXISTS is_demo BOOLEAN DEFAULT FALSE")
                 )
                 connection.execute(
                     text("ALTER TABLE driver_applications ADD COLUMN IF NOT EXISTS driver_tier TEXT DEFAULT 'uiuc_verified'")
@@ -61,6 +67,9 @@ def initialize_database() -> bool:
                 )
                 connection.execute(
                     text("ALTER TABLE driver_applications ADD COLUMN IF NOT EXISTS profile_edit_cooldown_until TIMESTAMP")
+                )
+                connection.execute(
+                    text("ALTER TABLE driver_applications ADD COLUMN IF NOT EXISTS is_demo BOOLEAN DEFAULT FALSE")
                 )
         return True
     except SQLAlchemyError as error:

@@ -161,6 +161,27 @@ Payload notes:
 - Unknown/custom tags are rejected with `400`
 - Legacy `labels` remains in schema for backward compatibility, but preference chips are sourced from `preference_tags`
 
+## Demo Data
+
+For periods of low traffic, seed clearly-labeled demo users and listings.
+
+From `backend/`:
+```bash
+python scripts/manage_demo_data.py refresh --count 8
+```
+
+This command:
+- Removes existing demo users/listings/applications (`is_demo = true`)
+- Creates fresh approved demo driver applications and active demo driver listings
+
+To remove all demo records:
+```bash
+python scripts/manage_demo_data.py cleanup
+```
+
+Default demo password (all seeded demo users):
+- `DemoPass123!`
+
 ## Deployment
 
 ### Deploy to Railway
